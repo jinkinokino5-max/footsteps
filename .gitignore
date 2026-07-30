@@ -1,0 +1,33 @@
+# 依存関係・ビルド成果物
+node_modules/
+dist/
+build/
+out/
+.next/
+.nuxt/
+.vercel/
+.godot/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# 秘密情報
+*.env
+.env.*
+
+# OS・エディタ
+.DS_Store
+Thumbs.db
+*.swp
+
+# Office編集中ロックファイル
+~$*.docx
+~$*.pptx
+~$*.xlsx
+
+# その他
+*.db
+*.log
