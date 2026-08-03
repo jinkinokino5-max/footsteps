@@ -1,7 +1,11 @@
+import MediaPlayer
 import SwiftUI
 
 struct ContentView: View {
     @State private var lastTappedAt: Date?
+    @State private var showPicker = false
+    @State private var selectedItem: MPMediaItem?
+    @StateObject private var player = AudioPlayerManager.shared
 
     var body: some View {
         VStack(spacing: 24) {
@@ -28,8 +32,56 @@ struct ContentView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+
+            Divider()
+
+            Button("曲を選択") {
+                showPicker = true
+            }
+            .buttonStyle(.bordered)
+
+            if let selectedItem {
+                VStack(spacing: 4) {
+                    Text(selectedItem.title ?? "不明な曲")
+                        .font(.headline)
+                    if let artist = selectedItem.artist {
+                        Text(artist)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Button(player.isPlaying ? "停止" : "再生") {
+                    if player.isPlaying {
+                        player.stop()
+                    } else {
+                        player.play()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(player.loadError != nil)
+            }
+
+            if let loadError = player.loadError {
+                Text(loadError)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+            }
         }
         .padding()
+        .sheet(isPresented: $showPicker) {
+            MediaPicker(
+                onPick: { item in
+                    showPicker = false
+                    selectedItem = item
+                    player.load(item: item)
+                },
+                onCancel: {
+                    showPicker = false
+                }
+            )
+        }
     }
 }
 
