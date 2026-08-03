@@ -11,46 +11,28 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Accept Xcode license / first launch
+      - name: Select newest available Xcode
         run: |
-          sudo xcodebuild -license accept
-          sudo xcodebuild -runFirstLaunch
+          echo "Available Xcode installs:"
+          ls -d /Applications/Xcode_*.app 2>/dev/null || true
+          LATEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$LATEST" ]; then
+            echo "Selecting $LATEST"
+            sudo xcode-select -s "$LATEST/Contents/Developer"
+          fi
+          xcodebuild -version
 
       - name: Install XcodeGen
         run: brew install xcodegen
 
       - name: Generate Xcode project
         run: xcodegen generate
-
-      - name: Diagnostics (report via annotation so it's readable without a token)
-        run: |
-          set +e
-          {
-            echo "== xcode-select -p =="
-            xcode-select -p
-            echo "== xcodebuild -version =="
-            xcodebuild -version
-            echo "== xcodegen version =="
-            xcodegen version
-            echo "== ls HisFootsteps.xcodeproj =="
-            ls -la HisFootsteps.xcodeproj 2>&1
-            echo "== xcodebuild -list =="
-            xcodebuild -list -project HisFootsteps.xcodeproj 2>&1
-            echo "== list exit code: $? =="
-          } > diag.txt 2>&1
-          cat diag.txt
-          OUTPUT=$(cat diag.txt)
-          ESCAPED="${OUTPUT//%/%25}"
-          ESCAPED="${ESCAPED//$'\r'/%0D}"
-          ESCAPED="${ESCAPED//$'\n'/%0A}"
-          echo "::notice title=Diagnostics::${ESCAPED}"
-          exit 0
 
       - name: Build unsigned .app
         run: |
@@ -66,6 +48,17 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             build 2>&1 | tee build.log
+
+      - name: Publish build log tail as annotation (readable without a token)
+        if: always()
+        run: |
+          if [ -f build.log ]; then
+            TAIL=$(tail -c 3500 build.log)
+            ESCAPED="${TAIL//%/%25}"
+            ESCAPED="${ESCAPED//$'\r'/%0D}"
+            ESCAPED="${ESCAPED//$'\n'/%0A}"
+            echo "::notice title=BuildLogTail::${ESCAPED}"
+          fi
 
       - name: Upload build log (always)
         if: always()
