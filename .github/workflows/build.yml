@@ -22,20 +22,35 @@ jobs:
           sudo xcodebuild -license accept
           sudo xcodebuild -runFirstLaunch
 
-      - name: Show environment
-        run: |
-          xcode-select -p
-          xcodebuild -version
-          ls /Applications | grep -i xcode || true
-
       - name: Install XcodeGen
         run: brew install xcodegen
 
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: List schemes (diagnostics)
-        run: xcodebuild -list -project HisFootsteps.xcodeproj
+      - name: Diagnostics (report via annotation so it's readable without a token)
+        run: |
+          set +e
+          {
+            echo "== xcode-select -p =="
+            xcode-select -p
+            echo "== xcodebuild -version =="
+            xcodebuild -version
+            echo "== xcodegen version =="
+            xcodegen version
+            echo "== ls HisFootsteps.xcodeproj =="
+            ls -la HisFootsteps.xcodeproj 2>&1
+            echo "== xcodebuild -list =="
+            xcodebuild -list -project HisFootsteps.xcodeproj 2>&1
+            echo "== list exit code: $? =="
+          } > diag.txt 2>&1
+          cat diag.txt
+          OUTPUT=$(cat diag.txt)
+          ESCAPED="${OUTPUT//%/%25}"
+          ESCAPED="${ESCAPED//$'\r'/%0D}"
+          ESCAPED="${ESCAPED//$'\n'/%0A}"
+          echo "::notice title=Diagnostics::${ESCAPED}"
+          exit 0
 
       - name: Build unsigned .app
         run: |
