@@ -31,3 +31,12 @@ Thumbs.db
 # その他
 *.db
 *.log
+
+# iOS / Xcode（XcodeGenでprojectを都度生成するため.xcodeprojはコミットしない）
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+Generated/
+*.ipa
+Payload/

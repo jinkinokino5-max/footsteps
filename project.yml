@@ -1,0 +1,34 @@
+name: HisFootsteps
+options:
+  bundleIdPrefix: com.hisfootsteps
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+targets:
+  HisFootsteps:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/HisFootsteps
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: His Footsteps
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSAppleMusicUsageDescription: "ビート検出のため、選択した曲の再生・解析に使用します。"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hisfootsteps.app
+        PRODUCT_NAME: HisFootsteps
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGN_IDENTITY: ""
+        DEVELOPMENT_TEAM: ""
