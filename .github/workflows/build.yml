@@ -17,14 +17,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show Xcode version
-        run: xcodebuild -version
+      - name: Show environment
+        run: |
+          xcode-select -p
+          xcodebuild -version
+          ls /Applications | grep -i xcode || true
 
       - name: Install XcodeGen
         run: brew install xcodegen
 
       - name: Generate Xcode project
         run: xcodegen generate
+
+      - name: List schemes (diagnostics)
+        run: xcodebuild -list -project HisFootsteps.xcodeproj
 
       - name: Build unsigned .app
         run: |
@@ -33,12 +39,21 @@ jobs:
             -project HisFootsteps.xcodeproj \
             -scheme HisFootsteps \
             -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -configuration Release \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build
+            build 2>&1 | tee build.log
+
+      - name: Upload build log (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 14
 
       - name: Package unsigned IPA
         run: |
