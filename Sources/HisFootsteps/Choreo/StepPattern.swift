@@ -72,6 +72,8 @@ enum StepPattern: CaseIterable {
 
         var foot = startFoot
         var out: [StepMove] = []
+        var isFirstOfBar = true
+        var previousPosition = startPosition
 
         // 小節内の位置は必ず beatInBar で見る。イントロなどで拍が欠けた小節でも、
         // パターンの1拍目が小節頭に落ちるようにするため。
@@ -81,8 +83,30 @@ enum StepPattern: CaseIterable {
                 let position = StepPattern.spread(
                     CGPoint(x: slot.position.x + CGFloat(jitterX), y: slot.position.y + CGFloat(jitterY))
                 )
+
+                let dx = Double(position.x - previousPosition.x)
+                let dy = Double(position.y - previousPosition.y)
+                let distance = (dx * dx + dy * dy).squareRoot()
+
+                // 小節の切り替わりで舞台の端から端へ飛ぶことがある。
+                // それを踏み込みでやると指が物理的に間に合わないので、滑りに変える。
+                // 見た目にも「大きな移動＝スライド」の方が自然。
+                var style = slot.style
+                if isFirstOfBar, style == .plant || style == .snap, distance > 0.40 {
+                    style = .glide
+                }
+                isFirstOfBar = false
+                previousPosition = position
+
+                // 移動が長いほど、到達までの時間も伸ばす。
+                // 質感（速く出てピタリと止まる）は保ったまま、指が間に合う速度に収める。
+                var ratio = style.travelRatio
+                if distance > 0.32 {
+                    ratio = min(0.95, ratio * (1 + (distance - 0.32) * 1.6))
+                }
+
                 let time = beat.time + beatPeriod * slot.offset
-                let travel = beatPeriod * slot.style.travelRatio * (slot.offset > 0 ? 0.5 : 1.0)
+                let travel = beatPeriod * ratio * (slot.offset > 0 ? 0.5 : 1.0)
                 out.append(
                     StepMove(
                         time: time,
@@ -90,7 +114,7 @@ enum StepPattern: CaseIterable {
                         position: position,
                         foot: foot,
                         rotation: slot.rotation,
-                        style: slot.style,
+                        style: style,
                         bar: beat.bar,
                         beatIndex: beat.index,
                         accent: beat.isDownbeat && slot.offset == 0,

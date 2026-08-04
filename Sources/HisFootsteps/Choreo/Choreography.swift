@@ -100,11 +100,13 @@ struct Choreography {
 
         var currentFoot: Foot = .right
         var lastPosition = CGPoint(x: 0.5, y: 0.62)
+        var previousPattern: StepPattern?
 
         for bar in bars {
             guard let beats = barBuckets[bar]?.sorted(by: { $0.index < $1.index }), !beats.isEmpty else { continue }
             let energy = Double(map.energy(ofBar: max(0, bar)))
-            let pattern = choosePattern(bar: bar, energy: energy, rng: &rng)
+            let pattern = choosePattern(bar: bar, energy: energy, previous: previousPattern, rng: &rng)
+            previousPattern = pattern
 
             let generated = pattern.build(
                 beats: beats,
@@ -125,7 +127,12 @@ struct Choreography {
         return Choreography(moves: moves)
     }
 
-    private static func choosePattern(bar: Int, energy: Double, rng: inout DeterministicRandom) -> StepPattern {
+    private static func choosePattern(
+        bar: Int,
+        energy: Double,
+        previous: StepPattern?,
+        rng: inout DeterministicRandom
+    ) -> StepPattern {
         // 8小節に一度は「見せ場」を置く
         if bar > 0, bar % 8 == 7 {
             return rng.bool() ? .spinCombo : .toeFreeze
@@ -134,13 +141,21 @@ struct Choreography {
             return .kickCombo
         }
 
+        let candidates: [StepPattern]
         if energy < 0.32 {
-            return rng.pick([.anchorSway, .sideStep, .toeFreeze])
+            candidates = [.anchorSway, .sideStep, .toeFreeze]
         } else if energy < 0.58 {
-            return rng.pick([.sideStep, .boxStep, .crossStep, .moonwalkLeft])
+            candidates = [.sideStep, .boxStep, .crossStep, .moonwalkLeft]
         } else {
-            return rng.pick([.zigzagFast, .moonwalkRight, .kickCombo, .crossStep, .boxStep])
+            candidates = [.zigzagFast, .moonwalkRight, .kickCombo, .crossStep, .boxStep]
         }
+
+        // 同じ型が続くと「さっきと同じ動き」に見えるので、一度だけ振り直す
+        var choice = rng.pick(candidates)
+        if choice == previous {
+            choice = rng.pick(candidates)
+        }
+        return choice
     }
 
     // MARK: - 参照
