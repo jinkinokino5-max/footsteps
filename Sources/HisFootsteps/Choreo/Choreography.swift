@@ -49,7 +49,8 @@ struct StepMove {
     let travel: TimeInterval
     /// ステージ内の正規化座標（0...1）
     let position: CGPoint
-    let foot: Foot
+    /// どちらの足で踏むか。位置が全部決まってから Choreography が割り当て直す。
+    var foot: Foot
     /// 足の向き（度、0が上向き）
     let rotation: Double
     let style: MoveStyle
@@ -60,6 +61,37 @@ struct StepMove {
     let accent: Bool
     /// この足を実際に「置く」か（滑りの途中は置かない）
     let plants: Bool
+}
+
+/// 片足の状態。両足モードではこれが左右2つぶん返る。
+struct FootState {
+    let foot: Foot
+    /// 床の上での位置（正規化座標）
+    let position: CGPoint
+    let rotation: Double
+    let scale: Double
+    /// 0＝床に着いている、1＝いちばん高く上がっている
+    let lift: Double
+    /// いま振り出している足か（もう片方は体重を支えて止まっている）
+    let isSwinging: Bool
+}
+
+/// 両足ぶんの状態。
+struct DualChoreoState {
+    let left: FootState
+    let right: FootState
+    let activeFoot: Foot
+    let landing: Double
+    let style: MoveStyle
+    let moveIndex: Int
+
+    /// 身体の中心（スポットライトはここを追う）
+    var center: CGPoint {
+        CGPoint(
+            x: (left.position.x + right.position.x) / 2,
+            y: (left.position.y + right.position.y) / 2
+        )
+    }
 }
 
 /// 現在フレームで足が居るべき状態。
@@ -83,6 +115,33 @@ struct ChoreoState {
 /// 同じ曲なら必ず同じ振り付けになるので、繰り返し練習が成立する。
 struct Choreography {
     let moves: [StepMove]
+
+    /// 添字 i の直前にある左足／右足の手順（無ければ -1）。要素数は moves.count + 1 で、
+    /// 末尾の要素は「全手順を終えたあとの最後の着地」を指す。
+    private let previousLeft: [Int]
+    private let previousRight: [Int]
+
+    /// 曲が始まる前の立ち位置
+    private static let restLeft = CGPoint(x: 0.42, y: 0.66)
+    private static let restRight = CGPoint(x: 0.58, y: 0.66)
+
+    init(moves: [StepMove]) {
+        self.moves = moves
+
+        var left = [Int](repeating: -1, count: moves.count + 1)
+        var right = [Int](repeating: -1, count: moves.count + 1)
+        var lastLeft = -1
+        var lastRight = -1
+        for i in moves.indices {
+            left[i] = lastLeft
+            right[i] = lastRight
+            if moves[i].foot == .left { lastLeft = i } else { lastRight = i }
+        }
+        left[moves.count] = lastLeft
+        right[moves.count] = lastRight
+        previousLeft = left
+        previousRight = right
+    }
 
     // MARK: - 生成
 
@@ -124,7 +183,69 @@ struct Choreography {
         }
 
         moves.sort { $0.time < $1.time }
+        assignFeet(to: &moves)
         return Choreography(moves: moves)
+    }
+
+    /// どちらの足で踏むかを、位置が全部決まってから割り当て直す。
+    ///
+    /// 単純な左右交互だと、左足が右側に着地して足がねじれた見た目になる。
+    /// 実際の歩行と同じく
+    ///   1. 踏んだあとに足が交差しないこと（これは絶対条件）
+    ///   2. 直前に出した足とは逆の足を出すこと
+    ///   3. 同点なら遠い方の足＝後ろに残っている足を出すこと
+    /// の順で決める。
+    private static func assignFeet(to moves: inout [StepMove]) {
+        var leftPosition = restLeft
+        var rightPosition = restRight
+        var lastFoot: Foot?
+        var sameFootRun = 0
+
+        /// 踏んだあとに左右が入れ替わらないか（わずかな交差は許す）
+        func keepsOrder(_ foot: Foot, target: CGPoint) -> Bool {
+            let tolerance: CGFloat = 0.06
+            switch foot {
+            case .left: return target.x <= rightPosition.x + tolerance
+            case .right: return leftPosition.x <= target.x + tolerance
+            }
+        }
+
+        func score(_ foot: Foot, target: CGPoint) -> Double {
+            let origin = foot == .left ? leftPosition : rightPosition
+            let dx = Double(target.x - origin.x)
+            let dy = Double(target.y - origin.y)
+            let distance = (dx * dx + dy * dy).squareRoot()
+            let alternation = (foot == lastFoot) ? 0.0 : 1.0
+            return alternation + min(0.4, distance * 0.5)
+        }
+
+        for index in moves.indices {
+            let target = moves[index].position
+            let leftOK = keepsOrder(.left, target: target)
+            let rightOK = keepsOrder(.right, target: target)
+
+            var chosen: Foot
+            if leftOK && !rightOK {
+                chosen = .left
+            } else if rightOK && !leftOK {
+                chosen = .right
+            } else {
+                // 両方成立（またはどちらも交差する大技）なら点数で決める
+                chosen = score(.left, target: target) >= score(.right, target: target) ? .left : .right
+            }
+
+            // 同じ足が3回続くと、片足だけが歩いていってもう片方が置き去りになる。
+            // ムーンウォークのように足が交差する動きは実際にあるので、
+            // 「交差させない」より「置き去りにしない」を優先する。
+            if chosen == lastFoot, sameFootRun >= 2 {
+                chosen = chosen.opposite
+            }
+            sameFootRun = (chosen == lastFoot) ? sameFootRun + 1 : 1
+
+            moves[index].foot = chosen
+            if chosen == .left { leftPosition = target } else { rightPosition = target }
+            lastFoot = chosen
+        }
     }
 
     private static func choosePattern(
@@ -246,6 +367,126 @@ struct Choreography {
             foot: next.foot,
             style: next.style,
             moveIndex: nextIndex
+        )
+    }
+
+    /// 両足ぶんの状態を返す。
+    ///
+    /// 片足モードとの決定的な違いは「補間の起点」。
+    /// 片足モードは直前の手順（＝もう片方の足）の位置から補間するので、1つの足跡が
+    /// 跳ね回っているようにしか見えない。ここでは**その足自身の前回の着地点**から補間し、
+    /// もう片方の足は体重を支えて止まったままにする。これで初めて歩行・ステップになる。
+    func dualState(at time: TimeInterval) -> DualChoreoState {
+        let nextIndex = firstMoveIndex(after: time)
+        let lookup = min(nextIndex, moves.count)
+
+        let leftIndex = previousLeft[lookup]
+        let rightIndex = previousRight[lookup]
+
+        var leftPosition = leftIndex >= 0 ? moves[leftIndex].position : Choreography.restLeft
+        var leftRotation = leftIndex >= 0 ? moves[leftIndex].rotation : -8
+        var rightPosition = rightIndex >= 0 ? moves[rightIndex].position : Choreography.restRight
+        var rightRotation = rightIndex >= 0 ? moves[rightIndex].rotation : 8
+
+        var leftScale = 1.0
+        var rightScale = 1.0
+        var leftLift = 0.0
+        var rightLift = 0.0
+        var activeFoot: Foot = .right
+        var style: MoveStyle = .plant
+
+        if nextIndex < moves.count {
+            let move = moves[nextIndex]
+            activeFoot = move.foot
+            style = move.style
+
+            let origin = move.foot == .left ? leftPosition : rightPosition
+            let originRotation = move.foot == .left ? leftRotation : rightRotation
+
+            let travelStart = move.time - move.travel
+            let raw = time <= travelStart
+                ? 0
+                : min(1, max(0, (time - travelStart) / max(0.016, move.travel)))
+            let eased = ease(raw, style: move.style)
+            let progress = CGFloat(eased)
+
+            var position = CGPoint(
+                x: origin.x + (move.position.x - origin.x) * progress,
+                y: origin.y + (move.position.y - origin.y) * progress
+            )
+            var rotation = originRotation + shortestAngle(from: originRotation, to: move.rotation) * eased
+            var scale = 1.0
+
+            // 床を擦る動き（滑り・静止）では足は浮かない。それ以外は山なりに持ち上がる。
+            var lift: Double
+            switch move.style {
+            case .glide, .freeze:
+                lift = 0
+            case .kick:
+                lift = sin(raw * .pi) * 1.35
+            default:
+                lift = sin(raw * .pi)
+            }
+
+            switch move.style {
+            case .spin:
+                rotation = originRotation + 360 * eased
+            case .toeStand:
+                scale = 1.0 + 0.35 * sin(eased * .pi)
+                lift = 0
+            case .kick:
+                let arc = sin(eased * .pi)
+                position.x += (move.position.x - origin.x) * CGFloat(0.35 * arc)
+                position.y -= CGFloat(0.10 * arc)
+                scale = 1.0 + 0.15 * arc
+            case .glide:
+                scale = 0.94
+            default:
+                break
+            }
+
+            if move.foot == .left {
+                leftPosition = position
+                leftRotation = rotation
+                leftScale = scale
+                leftLift = lift
+            } else {
+                rightPosition = position
+                rightRotation = rotation
+                rightScale = scale
+                rightLift = lift
+            }
+        }
+
+        var landing = 0.0
+        if nextIndex > 0, nextIndex - 1 < moves.count {
+            let since = time - moves[nextIndex - 1].time
+            if since >= 0, since < 0.28 {
+                landing = 1 - since / 0.28
+            }
+        }
+
+        return DualChoreoState(
+            left: FootState(
+                foot: .left,
+                position: leftPosition,
+                rotation: leftRotation,
+                scale: leftScale,
+                lift: leftLift,
+                isSwinging: activeFoot == .left
+            ),
+            right: FootState(
+                foot: .right,
+                position: rightPosition,
+                rotation: rightRotation,
+                scale: rightScale,
+                lift: rightLift,
+                isSwinging: activeFoot == .right
+            ),
+            activeFoot: activeFoot,
+            landing: landing,
+            style: style,
+            moveIndex: min(nextIndex, max(0, moves.count - 1))
         )
     }
 

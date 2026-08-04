@@ -144,7 +144,7 @@ struct PerformanceView: View {
 
     private var hintRow: some View {
         HStack {
-            Text(engine.mode.judgesFollow ? "指を置いたまま、光る足跡を追う" : "指を離して、ただ浴びる")
+            Text(engine.mode.judgesFollow ? "指を置いたまま、光る足跡を追う" : "両足のステップを、ただ浴びる")
                 .font(Theme.label(10))
                 .foregroundStyle(Theme.textSecondary.opacity(0.8))
             Spacer()

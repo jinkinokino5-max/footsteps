@@ -23,12 +23,16 @@ enum PerformanceMode: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .beatFocus: return "振動と光を最大に浴びる"
         case .stepFocus: return "次の一歩を読んで正確に追う"
-        case .watch: return "指を離して、ただ見る"
+        case .watch: return "両足で踏むステップを見る"
         }
     }
 
     /// 指の追従を採点するか
     var judgesFollow: Bool { self != .watch }
+
+    /// 両足でステップを踏むか。
+    /// 追従モードは指で追う的が1つでないと成立しないため、いまは観賞モードのみ。
+    var usesDualFeet: Bool { self == .watch }
 
     /// 次のステップをいくつ先まで見せるか。
     /// 0だと初見の人は次にどこへ足が飛ぶか分からず、全部MISSになって体験が終わる。

@@ -72,6 +72,8 @@ final class PerformanceEngine: ObservableObject {
 
     private(set) var audioTime: TimeInterval = 0
     private(set) var target: ChoreoState
+    /// 両足モード（観賞）のときだけ入る。片足モードでは nil。
+    private(set) var dualFeet: DualChoreoState?
     private(set) var footprints: [FootprintMark] = []
     private(set) var particles: [Particle] = []
     private(set) var popups: [JudgementPopup] = []
@@ -304,7 +306,24 @@ final class PerformanceEngine: ObservableObject {
     }
 
     private func updateTargetAndFootprints() {
-        target = choreography.state(at: audioTime)
+        if mode.usesDualFeet {
+            let dual = choreography.dualState(at: audioTime)
+            dualFeet = dual
+            let active = dual.activeFoot == .left ? dual.left : dual.right
+            // スポットライトや粒子は身体の中心（両足の中点）を追う
+            target = ChoreoState(
+                position: dual.center,
+                rotation: active.rotation,
+                scale: active.scale,
+                landing: dual.landing,
+                foot: dual.activeFoot,
+                style: dual.style,
+                moveIndex: dual.moveIndex
+            )
+        } else {
+            dualFeet = nil
+            target = choreography.state(at: audioTime)
+        }
 
         // 通過したステップの足跡を床に焼き付ける
         let reached = choreography.firstMoveIndex(after: audioTime)

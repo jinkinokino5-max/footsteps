@@ -385,6 +385,16 @@ struct StageRenderer {
             )
         }
 
+        // 両足モード（観賞）は左右それぞれを描く。片足モードは的が1つでないと指で追えない。
+        if let dual = engine.dualFeet {
+            // 支えている足を先に描き、振り出している足を上に重ねる
+            let planted = dual.activeFoot == .left ? dual.right : dual.left
+            let swinging = dual.activeFoot == .left ? dual.left : dual.right
+            drawSteppingFoot(&context, planted)
+            drawSteppingFoot(&context, swinging)
+            return
+        }
+
         drawSole(
             &context,
             at: center,
@@ -393,6 +403,65 @@ struct StageRenderer {
             foot: state.foot,
             fillAlpha: 1.0,
             glow: 1.4 + engine.kickFlash * 0.6 + engine.nearness * 0.5,
+            color: Theme.spotWarm
+        )
+    }
+
+    /// 片足を「床に着いている／持ち上がっている」の区別がつく形で描く。
+    ///
+    /// 浮いている足は、床に影を落としたまま本体だけを上へずらして大きくする。
+    /// この影と本体のズレが、平面の画面で「足が上がった」ことを伝える唯一の手がかりになる。
+    private func drawSteppingFoot(_ context: inout GraphicsContext, _ foot: FootState) {
+        let ground = point(foot.position)
+        let length = size.height * 0.122 * CGFloat(foot.scale) * depthScale(foot.position.y)
+        let lift = CGFloat(min(1.4, max(0, foot.lift)))
+        let airborne = CGPoint(x: ground.x, y: ground.y - size.height * 0.042 * lift)
+
+        if lift > 0.02 {
+            // 影は足が上がるほど広がって薄くなる（床が照らされている所でだけ効く）
+            radial(
+                &context,
+                center: ground,
+                radius: length * (0.42 + 0.30 * lift),
+                yScale: 0.30,
+                colors: [
+                    Color.black.opacity(0.55 * Double(1 - lift * 0.35)),
+                    Color.black.opacity(0)
+                ],
+                additive: false
+            )
+
+            // 真っ暗な床の上では黒い影は見えない。
+            // 接地点を光の輪で示して、「足が今そこから浮いている」ことを伝える。
+            var ringLayer = context
+            ringLayer.blendMode = .plusLighter
+            let rx = length * (0.32 + 0.20 * lift)
+            let ry = rx * 0.32
+            ringLayer.stroke(
+                Path(ellipseIn: CGRect(x: ground.x - rx, y: ground.y - ry, width: rx * 2, height: ry * 2)),
+                with: .color(Theme.gold.alpha(0.30 * Double(1 - lift * 0.35))),
+                lineWidth: 1.2
+            )
+        } else {
+            // 着いている足は接地点がほんのり光る（体重が乗っている感じ）
+            radial(
+                &context,
+                center: ground,
+                radius: length * 0.62,
+                yScale: 0.34,
+                colors: [Theme.gold.alpha(0.16), Theme.gold.alpha(0)],
+                additive: true
+            )
+        }
+
+        drawSole(
+            &context,
+            at: airborne,
+            rotation: foot.rotation,
+            length: length * (1 + 0.16 * lift),
+            foot: foot.foot,
+            fillAlpha: foot.isSwinging ? 1.0 : 0.86,
+            glow: (foot.isSwinging ? 1.35 : 0.85) + engine.kickFlash * 0.5,
             color: Theme.spotWarm
         )
     }
