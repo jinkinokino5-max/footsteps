@@ -18,6 +18,7 @@ struct SongSelectView: View {
     var body: some View {
         ZStack {
             Theme.stageBackground.ignoresSafeArea()
+            backstageGlow
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
@@ -80,6 +81,23 @@ struct SongSelectView: View {
 
     // MARK: - パーツ
 
+    /// 舞台袖の空気。上から一条だけ光が落ちている。
+    private var backstageGlow: some View {
+        VStack {
+            RadialGradient(
+                colors: [Theme.spotWarm.alpha(0.13), Theme.gold.alpha(0.04), .clear],
+                center: .top,
+                startRadius: 2,
+                endRadius: 340
+            )
+            .frame(height: 380)
+            .blendMode(.plusLighter)
+            Spacer()
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("SELECT THE GROOVE")
@@ -89,6 +107,10 @@ struct SongSelectView: View {
             Text("His Footsteps")
                 .font(Theme.display(32))
                 .foregroundStyle(Theme.goldSheen)
+            Rectangle()
+                .fill(Theme.goldSheen)
+                .frame(width: 54, height: 2)
+                .padding(.top, 6)
         }
     }
 
