@@ -70,6 +70,7 @@ struct ContentView: View {
                     Button(player.isPlaying ? "停止" : "再生") {
                         if player.isPlaying {
                             player.stop()
+                            HapticsManager.shared.stopBeatPattern()
                         } else {
                             player.play()
                         }
@@ -92,6 +93,16 @@ struct ContentView: View {
                         }
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+
+                        if !beatResult.beatTimestamps.isEmpty {
+                            Button("ビートに合わせて再生") {
+                                HapticsManager.shared.playBeatPattern(beatTimestamps: beatResult.beatTimestamps)
+                                player.play()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.orange)
+                            .disabled(player.isPlaying || player.loadError != nil)
+                        }
                     }
 
                     if let beatAnalysisError {
