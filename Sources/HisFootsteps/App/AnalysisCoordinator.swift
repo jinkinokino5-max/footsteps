@@ -27,11 +27,18 @@ final class AnalysisCoordinator: ObservableObject {
 
         queue.async { [weak self] in
             do {
+                var lastTickedStep = -1
                 let map = try GrooveAnalyzer.analyze(url: song.url, songID: song.id) { value in
                     DispatchQueue.main.async {
                         guard let self else { return }
                         self.progress = value
                         self.statusText = Self.stageText(for: value)
+                        // 待ち時間も触覚で見せる。10%進むごとに小さく打つ。
+                        let step = Int(value * 10)
+                        if step > lastTickedStep {
+                            lastTickedStep = step
+                            HapticConductor.shared.playSample(.hat, profile: .standard)
+                        }
                     }
                 }
                 GrooveMapStore.save(map, for: song)

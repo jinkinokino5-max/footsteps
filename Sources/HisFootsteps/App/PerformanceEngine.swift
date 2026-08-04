@@ -108,6 +108,13 @@ final class PerformanceEngine: ObservableObject {
     private(set) var lastJudgement: Judgement?
     private(set) var lastJudgementTime: TimeInterval = -10
 
+    /// コンボの熱量（0...1）。繋げるほど舞台が明るくなり、粒が増える。
+    /// 数字が増えるだけでは手応えにならないので、ステージ自体を燃え上がらせる。
+    var heat: Double {
+        guard mode.judgesFollow else { return 0.35 }
+        return min(1, Double(combo) / 45)
+    }
+
     /// 先読み表示する次のステップ（モードによって1〜3歩先まで）
     private(set) var previewMoves: [StepMove] = []
 
@@ -185,11 +192,13 @@ final class PerformanceEngine: ObservableObject {
 
     private func beginPlayback() {
         phase = .playing
-        haptics.startSequence(map: map, profile: profile) { [weak self] in
-            self?.audio.currentTime ?? 0
-        }
+        // 先に音を鳴らしてから触覚を仕掛ける。逆にすると、まだ再生位置が0のまま
+        // 最初の0.5秒ぶんを予約してしまい、曲頭だけ振動が先走る。
         audio.play { [weak self] in
             self?.finish()
+        }
+        haptics.startSequence(map: map, profile: profile) { [weak self] in
+            self?.audio.currentTime ?? 0
         }
     }
 
@@ -430,7 +439,7 @@ final class PerformanceEngine: ObservableObject {
     // MARK: - 粒子
 
     private func spawnBurst(at position: CGPoint, count: Int, tone: Int, power: Double) {
-        let amount = Int(Double(count) * mode.spectacle)
+        let amount = Int(Double(count) * mode.spectacle * (1 + heat * 0.9))
         guard amount > 0 else { return }
         for _ in 0..<amount {
             let angle = random.range(0, .pi * 2)

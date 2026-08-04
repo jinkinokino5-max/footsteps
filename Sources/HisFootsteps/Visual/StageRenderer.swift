@@ -94,7 +94,7 @@ struct StageRenderer {
             line.move(to: CGPoint(x: 0, y: y))
             line.addLine(to: CGPoint(x: size.width, y: y))
 
-            let base = 0.045 + 0.20 * pow(u, 1.6)
+            let base = (0.045 + 0.20 * pow(u, 1.6)) * (1 + engine.heat * 0.55)
             let pulse = engine.lowLevel * 0.30 * pow(u, 2.0)
             var ripple = 0.0
             if rippleAlive {
@@ -244,7 +244,7 @@ struct StageRenderer {
 
     private func drawSpotlight(_ context: inout GraphicsContext) {
         let focus = point(engine.target.position)
-        let intensity = 0.30 + engine.lowLevel * 0.30 + engine.kickFlash * 0.22
+        let intensity = 0.30 + engine.lowLevel * 0.30 + engine.kickFlash * 0.22 + engine.heat * 0.20
 
         // 天井から降りてくる光の柱。3枚重ねて中心を濃くする。
         var layer = context

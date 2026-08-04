@@ -107,10 +107,10 @@ struct PerformanceView: View {
                 Text("\(engine.combo)")
                     .font(Theme.mono(engine.combo >= 10 ? 34 : 26))
                     .foregroundStyle(engine.combo >= 10 ? Theme.gold : Theme.textPrimary)
-                Text("COMBO")
+                Text(engine.heat >= 1 ? "FEVER" : "COMBO")
                     .font(Theme.label(9))
                     .tracking(2)
-                    .foregroundStyle(Theme.textSecondary)
+                    .foregroundStyle(engine.heat >= 1 ? Theme.ember : Theme.textSecondary)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 0) {
