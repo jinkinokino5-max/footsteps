@@ -19,6 +19,8 @@ struct ContentView: View {
     @State private var followSummary: FollowSummary?
     @State private var trackingToken = UUID()
     @State private var selectedMode: AppMode = .stepFocused
+    @State private var playbackStartDate: Date?
+    @State private var touchHistory: [(time: TimeInterval, location: CGPoint)] = []
 
     var body: some View {
         VStack(spacing: 24) {
@@ -139,6 +141,12 @@ struct ContentView: View {
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
+                            if let timingComment = followSummary.timingComment {
+                                Text(timingComment)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                            }
                         }
                         .padding()
                         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
@@ -190,7 +198,14 @@ struct ContentView: View {
         )
         .gesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { value in touchLocation = value.location }
+                .onChanged { value in
+                    touchLocation = value.location
+                    if let playbackStartDate {
+                        let elapsed = Date().timeIntervalSince(playbackStartDate)
+                        touchHistory.append((time: elapsed, location: value.location))
+                        touchHistory.removeAll { elapsed - $0.time > 1.5 }
+                    }
+                }
                 .onEnded { _ in touchLocation = nil }
         )
     }
@@ -202,6 +217,8 @@ struct ContentView: View {
         currentBeatIndex = 0
         followSummary = nil
         followTracker.reset()
+        touchHistory = []
+        playbackStartDate = Date()
         isTrackingRun = selectedMode.isFollowJudgeEnabled
 
         HapticsManager.shared.playBeatPattern(beatTimestamps: beatTimestamps, intensity: selectedMode.hapticIntensity)
@@ -210,7 +227,14 @@ struct ContentView: View {
         footstepScheduler.schedule(beatTimestamps: beatTimestamps) {
             if selectedMode.isFollowJudgeEnabled {
                 let target = FootstepPath.position(forBeatIndex: currentBeatIndex, in: stageSize)
-                followTracker.record(beatIndex: currentBeatIndex, targetPosition: target, touchLocation: touchLocation)
+                let maxAcceptableDistance = max(stageSize.width, stageSize.height) * 0.25
+                followTracker.record(
+                    beatIndex: currentBeatIndex,
+                    beatTime: beatTimestamps[currentBeatIndex],
+                    targetPosition: target,
+                    touchHistory: touchHistory,
+                    maxAcceptableDistance: maxAcceptableDistance
+                )
             }
             currentBeatIndex += 1
             beatBounceCounter += 1
