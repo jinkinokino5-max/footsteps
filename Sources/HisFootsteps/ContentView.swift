@@ -24,6 +24,27 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 24) {
+            headerSection
+
+            modePicker
+
+            followStage
+                .allowsHitTesting(selectedMode.isFollowJudgeEnabled)
+
+            hapticsTestSection
+
+            Divider()
+
+            songLibrarySection
+        }
+        .padding()
+        .onAppear {
+            songs = BundledSongLibrary.loadAll()
+        }
+    }
+
+    private var headerSection: some View {
+        VStack(spacing: 4) {
             Text("His Footsteps")
                 .font(.title)
                 .bold()
@@ -31,17 +52,20 @@ struct ContentView: View {
             Text("Beat Trainer - Pipeline & Haptics Test")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
 
-            Picker("モード", selection: $selectedMode) {
-                ForEach(AppMode.allCases) { mode in
-                    Text(mode.rawValue).tag(mode)
-                }
+    private var modePicker: some View {
+        Picker("モード", selection: $selectedMode) {
+            ForEach(AppMode.allCases) { mode in
+                Text(mode.rawValue).tag(mode)
             }
-            .pickerStyle(.segmented)
+        }
+        .pickerStyle(.segmented)
+    }
 
-            followStage
-                .allowsHitTesting(selectedMode.isFollowJudgeEnabled)
-
+    private var hapticsTestSection: some View {
+        VStack(spacing: 8) {
             Button("ハプティクスをテスト") {
                 HapticsManager.shared.playTestTap()
                 lastTappedAt = Date()
@@ -57,9 +81,11 @@ struct ContentView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
 
-            Divider()
-
+    private var songLibrarySection: some View {
+        VStack(spacing: 8) {
             Text("内蔵曲")
                 .font(.headline)
 
@@ -69,88 +95,10 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             } else {
-                VStack(spacing: 8) {
-                    ForEach(songs) { song in
-                        Button {
-                            selectedSong = song
-                            player.load(song: song)
-                            beatResult = nil
-                            beatAnalysisError = nil
-                        } label: {
-                            HStack {
-                                Text(song.displayName)
-                                Spacer()
-                                if selectedSong?.id == song.id {
-                                    Image(systemName: "checkmark.circle.fill")
-                                }
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                }
+                songListView
 
                 if selectedSong != nil {
-                    Button(player.isPlaying ? "停止" : "再生") {
-                        if player.isPlaying {
-                            stopBeatSyncedPlayback()
-                        } else {
-                            player.play()
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(player.loadError != nil)
-
-                    Button(isAnalyzingBeats ? "解析中..." : "拍を解析") {
-                        analyzeBeats()
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isAnalyzingBeats || player.loadError != nil)
-
-                    if let beatResult {
-                        VStack(spacing: 4) {
-                            if let bpm = beatResult.estimatedBPM {
-                                Text("推定BPM: \(String(format: "%.1f", bpm))")
-                            }
-                            Text("検出した拍の数: \(beatResult.beatTimestamps.count)")
-                        }
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
-                        if !beatResult.beatTimestamps.isEmpty {
-                            Button("ビートに合わせて再生") {
-                                startBeatSyncedPlayback(beatTimestamps: beatResult.beatTimestamps)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(.orange)
-                            .disabled(player.isPlaying || player.loadError != nil)
-                        }
-                    }
-
-                    if let beatAnalysisError {
-                        Text(beatAnalysisError)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                            .multilineTextAlignment(.center)
-                    }
-
-                    if let followSummary {
-                        VStack(spacing: 4) {
-                            Text("追従精度: \(String(format: "%.1f", followSummary.accuracyPercent))%")
-                                .font(.headline)
-                            Text(followSummary.comment)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                            if let timingComment = followSummary.timingComment {
-                                Text(timingComment)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.center)
-                            }
-                        }
-                        .padding()
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    }
+                    selectedSongControls
                 }
             }
 
@@ -161,10 +109,103 @@ struct ContentView: View {
                     .multilineTextAlignment(.center)
             }
         }
-        .padding()
-        .onAppear {
-            songs = BundledSongLibrary.loadAll()
+    }
+
+    private var songListView: some View {
+        VStack(spacing: 8) {
+            ForEach(songs) { song in
+                Button {
+                    selectedSong = song
+                    player.load(song: song)
+                    beatResult = nil
+                    beatAnalysisError = nil
+                } label: {
+                    HStack {
+                        Text(song.displayName)
+                        Spacer()
+                        if selectedSong?.id == song.id {
+                            Image(systemName: "checkmark.circle.fill")
+                        }
+                    }
+                }
+                .buttonStyle(.bordered)
+            }
         }
+    }
+
+    private var selectedSongControls: some View {
+        VStack(spacing: 8) {
+            Button(player.isPlaying ? "停止" : "再生") {
+                if player.isPlaying {
+                    stopBeatSyncedPlayback()
+                } else {
+                    player.play()
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(player.loadError != nil)
+
+            Button(isAnalyzingBeats ? "解析中..." : "拍を解析") {
+                analyzeBeats()
+            }
+            .buttonStyle(.bordered)
+            .disabled(isAnalyzingBeats || player.loadError != nil)
+
+            beatResultView
+
+            if let beatAnalysisError {
+                Text(beatAnalysisError)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+            }
+
+            if let followSummary {
+                followSummaryView(followSummary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var beatResultView: some View {
+        if let beatResult {
+            VStack(spacing: 4) {
+                if let bpm = beatResult.estimatedBPM {
+                    Text("推定BPM: \(String(format: "%.1f", bpm))")
+                }
+                Text("検出した拍の数: \(beatResult.beatTimestamps.count)")
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+
+            if !beatResult.beatTimestamps.isEmpty {
+                Button("ビートに合わせて再生") {
+                    startBeatSyncedPlayback(beatTimestamps: beatResult.beatTimestamps)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+                .disabled(player.isPlaying || player.loadError != nil)
+            }
+        }
+    }
+
+    private func followSummaryView(_ summary: FollowSummary) -> some View {
+        VStack(spacing: 4) {
+            Text("追従精度: \(String(format: "%.1f", summary.accuracyPercent))%")
+                .font(.headline)
+            Text(summary.comment)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            if let timingComment = summary.timingComment {
+                Text(timingComment)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding()
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 
     /// 足跡の目標軌跡と、指の追従位置を表示・記録するステージ（Phase6：指のなぞり追従判定）
@@ -173,13 +214,7 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 16)
                 .fill(.thinMaterial)
 
-            let target = FootstepPath.position(forBeatIndex: currentBeatIndex, in: stageSize)
-            Image(systemName: "shoeprints.fill")
-                .font(.system(size: 40))
-                .foregroundStyle(.orange)
-                .symbolEffect(.bounce, value: beatBounceCounter)
-                .position(target)
-                .animation(.easeInOut(duration: 0.15), value: currentBeatIndex)
+            footstepMarker
 
             if let touchLocation, selectedMode.isFollowJudgeEnabled {
                 Circle()
@@ -208,6 +243,16 @@ struct ContentView: View {
                 }
                 .onEnded { _ in touchLocation = nil }
         )
+    }
+
+    private var footstepMarker: some View {
+        let target = FootstepPath.position(forBeatIndex: currentBeatIndex, in: stageSize)
+        return Image(systemName: "shoeprints.fill")
+            .font(.system(size: 40))
+            .foregroundStyle(.orange)
+            .symbolEffect(.bounce, value: beatBounceCounter)
+            .position(target)
+            .animation(.easeInOut(duration: 0.15), value: currentBeatIndex)
     }
 
     private func startBeatSyncedPlayback(beatTimestamps: [TimeInterval]) {
