@@ -1,5 +1,6 @@
 import Combine
 import CoreGraphics
+import Foundation
 
 struct FollowJudgeResult {
     let beatIndex: Int
