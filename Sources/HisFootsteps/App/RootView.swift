@@ -49,6 +49,7 @@ struct RootView: View {
                 settings: settings,
                 analysis: analysis,
                 songs: songs,
+                onLibraryChanged: reloadLibrary,
                 onStart: startPerformance
             )
             .transition(.opacity)
@@ -87,6 +88,10 @@ struct RootView: View {
         if settings.hasOnboarded {
             screen = .select
         }
+    }
+
+    private func reloadLibrary() {
+        songs = SongLibrary.loadAll()
     }
 
     private func go(to next: Screen) {

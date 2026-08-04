@@ -26,8 +26,8 @@ final class HapticConductor {
     private var scheduledUntil: TimeInterval = 0
     private var nextBedTime: TimeInterval = 0
 
-    private let lookAhead: TimeInterval = 0.55
-    private let tickInterval: TimeInterval = 0.06
+    private let lookAhead: TimeInterval = 0.50
+    private let tickInterval: TimeInterval = 0.12
 
     /// 端末ごとの体感ズレを詰めるための補正（正の値ほど振動が早くなる）
     var leadTime: TimeInterval = 0

@@ -171,13 +171,15 @@ enum HapticDesigner {
         guard profile.grooveBed else { return nil }
         let intensity = clamp((0.05 + 0.17 * clamp(lowEnergy)) * profile.gain)
         guard intensity > 0.045 else { return nil }
+        // エンベロープは拍の刻み幅に合わせる。固定値だと速い曲で立ち上がり切らずに消える。
+        let span = max(0.05, duration)
         return continuous(
             time,
-            duration: max(0.05, duration),
+            duration: span,
             intensity: intensity,
             sharpness: 0.0,
-            attack: 0.15,
-            decay: 0.4,
+            attack: Float(span * 0.30),
+            decay: Float(span * 0.55),
             sustained: false
         )
     }

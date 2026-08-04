@@ -1,7 +1,16 @@
 import Foundation
 
+/// 解析結果の要約。選曲画面はこれだけ読めばよく、数MBの本体を触らずに済む。
+struct GrooveSummary: Codable {
+    let bpm: Double
+    let beatCount: Int
+    let hitCount: Int
+}
+
 /// 解析結果をキャッシュに保存し、2回目以降の起動を一瞬にするための保管庫。
 enum GrooveMapStore {
+    private static var summaryCache: [String: GrooveSummary] = [:]
+
     private static var directory: URL? {
         guard let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
         let dir = base.appendingPathComponent("GrooveMaps", isDirectory: true)
@@ -11,15 +20,23 @@ enum GrooveMapStore {
         return dir
     }
 
-    private static func fileURL(for song: Song) -> URL? {
-        guard let directory else { return nil }
+    private static func baseName(for song: Song) -> String {
         let safeID = song.id.replacingOccurrences(of: "/", with: "_")
-        let name = "\(safeID)-\(song.byteSize)-v\(GrooveMap.currentVersion).json"
-        return directory.appendingPathComponent(name)
+        return "\(safeID)-\(song.byteSize)-v\(GrooveMap.currentVersion)"
     }
 
+    private static func mapURL(for song: Song) -> URL? {
+        directory?.appendingPathComponent(baseName(for: song) + ".json")
+    }
+
+    private static func summaryURL(for song: Song) -> URL? {
+        directory?.appendingPathComponent(baseName(for: song) + ".meta.json")
+    }
+
+    // MARK: - 本体
+
     static func load(for song: Song) -> GrooveMap? {
-        guard let url = fileURL(for: song),
+        guard let url = mapURL(for: song),
               let data = try? Data(contentsOf: url),
               let map = try? JSONDecoder().decode(GrooveMap.self, from: data),
               map.version == GrooveMap.currentVersion
@@ -28,17 +45,36 @@ enum GrooveMapStore {
     }
 
     static func save(_ map: GrooveMap, for song: Song) {
-        guard let url = fileURL(for: song), let data = try? JSONEncoder().encode(map) else { return }
-        try? data.write(to: url, options: .atomic)
+        if let url = mapURL(for: song), let data = try? JSONEncoder().encode(map) {
+            try? data.write(to: url, options: .atomic)
+        }
+        let summary = GrooveSummary(bpm: map.bpm, beatCount: map.beats.count, hitCount: map.hits.count)
+        summaryCache[song.id] = summary
+        if let url = summaryURL(for: song), let data = try? JSONEncoder().encode(summary) {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    // MARK: - 要約（選曲画面用）
+
+    static func summary(for song: Song) -> GrooveSummary? {
+        if let cached = summaryCache[song.id] { return cached }
+        guard let url = summaryURL(for: song),
+              let data = try? Data(contentsOf: url),
+              let summary = try? JSONDecoder().decode(GrooveSummary.self, from: data)
+        else { return nil }
+        summaryCache[song.id] = summary
+        return summary
     }
 
     /// 解析アルゴリズムを更新したときに古い世代のキャッシュを掃除する
     static func purgeOldVersions() {
+        summaryCache.removeAll()
         guard let directory,
               let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
         else { return }
-        let suffix = "-v\(GrooveMap.currentVersion).json"
-        for file in files where !file.lastPathComponent.hasSuffix(suffix) {
+        let marker = "-v\(GrooveMap.currentVersion)."
+        for file in files where !file.lastPathComponent.contains(marker) {
             try? FileManager.default.removeItem(at: file)
         }
     }

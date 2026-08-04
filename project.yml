@@ -19,13 +19,17 @@ targets:
       properties:
         CFBundleDisplayName: His Footsteps
         UILaunchScreen: {}
+        UIUserInterfaceStyle: Dark
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        # 「ファイル」アプリやFinder経由で曲を入れられるようにする
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hisfootsteps.app
         PRODUCT_NAME: HisFootsteps
-        MARKETING_VERSION: "0.1.0"
+        MARKETING_VERSION: "2.0.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"

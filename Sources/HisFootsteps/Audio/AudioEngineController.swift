@@ -37,7 +37,11 @@ final class AudioEngineController: ObservableObject {
 
     // MARK: - 時計
 
-    /// 曲頭からの再生位置（秒）。再生していないときは最後に分かっていた位置を返す。
+    /// 「今まさに耳に届いている」再生位置（秒）。
+    ///
+    /// `lastRenderTime`が示すのはスピーカーへ書き出し中の位置で、実際に聞こえるのはそれより
+    /// 出力レイテンシぶん後になる。Bluetoothイヤホンでは200msを超えることもあるため、
+    /// ここで差し引いておかないと振動だけが先走って「合っていない」体験になる。
     var currentTime: TimeInterval {
         guard player.isPlaying,
               let nodeTime = player.lastRenderTime,
@@ -46,9 +50,17 @@ final class AudioEngineController: ObservableObject {
         else {
             return lastKnownTime
         }
-        let time = Double(playerTime.sampleTime) / playerTime.sampleRate
-        lastKnownTime = max(0, time)
+        let rendered = Double(playerTime.sampleTime) / playerTime.sampleRate
+        lastKnownTime = max(0, rendered - outputLatency)
         return lastKnownTime
+    }
+
+    /// 出力経路のレイテンシ。毎フレーム問い合わせると重いのでキャッシュする。
+    private var outputLatency: TimeInterval = 0
+
+    private func refreshOutputLatency() {
+        let session = AVAudioSession.sharedInstance()
+        outputLatency = session.outputLatency + session.ioBufferDuration
     }
 
     // MARK: - 読み込み / 再生
@@ -67,6 +79,11 @@ final class AudioEngineController: ObservableObject {
             engine.connect(eq, to: engine.mainMixerNode, format: format)
             engine.prepare()
 
+            // カウントインが終わった瞬間に音が出るよう、ここでセッションとエンジンを温めておく
+            try? activateSession()
+            refreshOutputLatency()
+            if !engine.isRunning { try? engine.start() }
+
             file = audioFile
             duration = Double(audioFile.length) / format.sampleRate
             lastKnownTime = 0
@@ -84,6 +101,7 @@ final class AudioEngineController: ObservableObject {
         guard let file else { return }
         do {
             try activateSession()
+            refreshOutputLatency()
             if !engine.isRunning { try engine.start() }
 
             player.stop()
@@ -169,6 +187,15 @@ final class AudioEngineController: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             self?.stop()
+        }
+
+        // イヤホンを挿し替えると遅延が大きく変わるので取り直す
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshOutputLatency()
         }
     }
 }

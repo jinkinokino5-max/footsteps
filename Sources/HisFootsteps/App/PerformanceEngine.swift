@@ -80,6 +80,11 @@ final class PerformanceEngine: ObservableObject {
     private(set) var midLevel: Double = 0
     private(set) var highLevel: Double = 0
 
+    /// 画面の揺れ（正規化。レンダラーが画面サイズを掛けて使う）
+    private(set) var shakeOffset: CGPoint = .zero
+    private var shakeAmount: Double = 0
+    private var shakePhase: Double = 0
+
     private(set) var kickFlash: Double = 0
     private(set) var snareFlash: Double = 0
     private(set) var accentFlash: Double = 0
@@ -331,13 +336,16 @@ final class PerformanceEngine: ObservableObject {
             switch hit.kind {
             case .kick:
                 kickFlash = min(1.2, kickFlash + Double(hit.strength) * 0.95)
+                shakeAmount = max(shakeAmount, 0.0042 * Double(hit.strength))
                 spawnBurst(at: target.position, count: 7, tone: 0, power: Double(hit.strength))
             case .snare:
                 snareFlash = min(1.2, snareFlash + Double(hit.strength) * 0.9)
+                shakeAmount = max(shakeAmount, 0.0022 * Double(hit.strength))
                 spawnBurst(at: target.position, count: 5, tone: 1, power: Double(hit.strength) * 0.8)
             case .accent:
                 accentFlash = 1.2
                 kickFlash = 1.2
+                shakeAmount = max(shakeAmount, 0.0125)
                 spawnBurst(at: target.position, count: 26, tone: 0, power: 1.4)
                 spawnBurst(at: target.position, count: 12, tone: 1, power: 1.1)
             case .hat, .openHat:
@@ -488,5 +496,17 @@ final class PerformanceEngine: ObservableObject {
         snareFlash *= fast
         accentFlash *= slow
         hatShimmer *= exp(-dt * 11)
+
+        shakePhase += dt * 41
+        shakeAmount *= exp(-dt * 9.5)
+        if shakeAmount < 0.00005 {
+            shakeAmount = 0
+            shakeOffset = .zero
+        } else {
+            shakeOffset = CGPoint(
+                x: CGFloat(sin(shakePhase) * shakeAmount),
+                y: CGFloat(cos(shakePhase * 1.37) * shakeAmount * 0.65)
+            )
+        }
     }
 }

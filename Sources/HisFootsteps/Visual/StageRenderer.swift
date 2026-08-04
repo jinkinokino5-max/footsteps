@@ -17,16 +17,26 @@ struct StageRenderer {
     }
 
     func render(into context: inout GraphicsContext) {
+        // 背景だけは揺らさない（揺らすと画面端に隙間が出るため）
         drawBackground(&context)
-        drawFloor(&context)
-        drawSpotlight(&context)
-        drawFootprintMarks(&context)
-        drawPreview(&context)
-        drawCurrentFoot(&context)
-        drawFinger(&context)
-        drawParticles(&context)
+
+        var stage = context
+        stage.translateBy(
+            x: engine.shakeOffset.x * size.width,
+            y: engine.shakeOffset.y * size.height
+        )
+
+        drawFloor(&stage)
+        drawBeams(&stage)
+        drawSpotlight(&stage)
+        drawTrailPath(&stage)
+        drawFootprintMarks(&stage)
+        drawPreview(&stage)
+        drawCurrentFoot(&stage)
+        drawFinger(&stage)
+        drawParticles(&stage)
         drawFlashes(&context)
-        drawPopups(&context)
+        drawPopups(&stage)
     }
 
     // MARK: - 背景
@@ -63,8 +73,9 @@ struct StageRenderer {
         var layer = context
         layer.blendMode = .plusLighter
 
-        for i in 0..<rows {
+        for i in -1..<rows {
             let u = (Double(i) + scroll) / Double(rows)
+            guard u > 0 else { continue }
             let y = horizon + (size.height - horizon) * CGFloat(pow(u, 2.5))
             guard y > horizon, y < size.height + 4 else { continue }
             var line = Path()
@@ -88,6 +99,63 @@ struct StageRenderer {
                 endPoint: CGPoint(x: bottomX, y: size.height)
             ), lineWidth: 0.8)
         }
+    }
+
+    // MARK: - 舞台照明（客席側から舐めるように走る光の帯）
+
+    private func drawBeams(_ context: inout GraphicsContext) {
+        let sweep = engine.barPhase * 2 * .pi
+        var layer = context
+        layer.blendMode = .plusLighter
+
+        let sources = [
+            (origin: CGPoint(x: -size.width * 0.10, y: -size.height * 0.05), phase: 0.0, color: Theme.neon),
+            (origin: CGPoint(x: size.width * 1.10, y: -size.height * 0.05), phase: Double.pi, color: Theme.ember)
+        ]
+
+        for source in sources {
+            let angle = sin(sweep + source.phase) * 0.42
+            let reach = size.height * 1.35
+            let center = CGPoint(
+                x: source.origin.x + CGFloat(sin(angle + 0.6)) * reach,
+                y: source.origin.y + reach
+            )
+            let halfWidth = size.width * 0.10
+            var beam = Path()
+            beam.move(to: CGPoint(x: source.origin.x - 6, y: source.origin.y))
+            beam.addLine(to: CGPoint(x: center.x - halfWidth, y: center.y))
+            beam.addLine(to: CGPoint(x: center.x + halfWidth, y: center.y))
+            beam.addLine(to: CGPoint(x: source.origin.x + 6, y: source.origin.y))
+            beam.closeSubpath()
+
+            let strength = 0.035 + engine.midLevel * 0.05 + engine.snareFlash * 0.05
+            layer.fill(beam, with: .linearGradient(
+                Gradient(colors: [source.color.alpha(strength), source.color.alpha(strength * 0.25), source.color.alpha(0)]),
+                startPoint: source.origin,
+                endPoint: center
+            ))
+        }
+    }
+
+    // MARK: - 歩いた軌跡
+
+    private func drawTrailPath(_ context: inout GraphicsContext) {
+        let marks = engine.footprints
+        guard marks.count > 1 else { return }
+        var layer = context
+        layer.blendMode = .plusLighter
+
+        var path = Path()
+        path.move(to: point(marks[0].position))
+        for i in 1..<marks.count {
+            let previous = point(marks[i - 1].position)
+            let current = point(marks[i].position)
+            let mid = CGPoint(x: (previous.x + current.x) / 2, y: (previous.y + current.y) / 2)
+            path.addQuadCurve(to: current, control: mid)
+        }
+
+        layer.stroke(path, with: .color(Theme.gold.alpha(0.12)), lineWidth: 7)
+        layer.stroke(path, with: .color(Theme.gold.alpha(0.26)), lineWidth: 2)
     }
 
     // MARK: - スポットライト

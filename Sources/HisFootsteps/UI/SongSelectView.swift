@@ -1,15 +1,19 @@
 import Combine
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 曲・モード・振動強度を選ぶ「楽屋」。
 struct SongSelectView: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var analysis: AnalysisCoordinator
     let songs: [Song]
+    var onLibraryChanged: () -> Void
     var onStart: (Song, GrooveMap) -> Void
 
     @State private var selected: Song?
     @State private var showsCalibration = false
+    @State private var showsImporter = false
+    @State private var importError: String?
 
     var body: some View {
         ZStack {
@@ -39,6 +43,38 @@ struct SongSelectView: View {
         }
         .onAppear {
             if selected == nil { selected = songs.first }
+        }
+        .onChange(of: songs.count) { _, _ in
+            if selected == nil || !songs.contains(where: { $0.id == selected?.id }) {
+                selected = songs.last
+            }
+        }
+        .fileImporter(
+            isPresented: $showsImporter,
+            allowedContentTypes: [.audio, .mp3, .mpeg4Audio, .wav],
+            allowsMultipleSelection: true,
+            onCompletion: handleImport
+        )
+    }
+
+    private func handleImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            var imported: Song?
+            for url in urls {
+                do {
+                    imported = try SongLibrary.importSong(from: url)
+                } catch {
+                    importError = error.localizedDescription
+                }
+            }
+            if imported != nil {
+                importError = nil
+                onLibraryChanged()
+                HapticConductor.shared.playSample(.accent, profile: settings.hapticProfile)
+            }
+        case .failure(let error):
+            importError = error.localizedDescription
         }
     }
 
@@ -143,60 +179,104 @@ struct SongSelectView: View {
 
     private var songSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("TRACK")
+            HStack {
+                sectionTitle("TRACK")
+                Spacer()
+                Button {
+                    showsImporter = true
+                } label: {
+                    Label("曲を追加", systemImage: "plus.circle")
+                        .font(Theme.label(12))
+                        .foregroundStyle(Theme.neon)
+                }
+                .buttonStyle(.plain)
+            }
+
             if songs.isEmpty {
-                Text("内蔵曲がありません。Resources/Music に曲ファイルを置いてビルドしてください。")
+                Text("曲がありません。「曲を追加」から、iPhoneの「ファイル」にあるMP3を取り込んでください。")
                     .font(Theme.label(12))
                     .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
                 ForEach(songs) { song in
                     songRow(song)
                 }
+            }
+
+            if let importError {
+                Text(importError)
+                    .font(Theme.label(11))
+                    .foregroundStyle(Theme.ember)
+            }
+
+            if let error = analysis.errorMessage {
+                Text(error)
+                    .font(Theme.label(11))
+                    .foregroundStyle(Theme.ember)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
     private func songRow(_ song: Song) -> some View {
         let isSelected = selected?.id == song.id
-        return Button {
-            selected = song
-            HapticConductor.shared.playSample(.snare, profile: settings.hapticProfile)
-        } label: {
-            HStack(spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(isSelected ? AnyShapeStyle(Theme.goldSheen) : AnyShapeStyle(Color.white.opacity(0.07)))
-                        .frame(width: 44, height: 44)
-                    Image(systemName: isSelected ? "waveform" : "music.note")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(isSelected ? Color.black : Theme.textSecondary)
+        return HStack(spacing: 0) {
+            Button {
+                selected = song
+                HapticConductor.shared.playSample(.snare, profile: settings.hapticProfile)
+            } label: {
+                HStack(spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(isSelected ? AnyShapeStyle(Theme.goldSheen) : AnyShapeStyle(Color.white.opacity(0.07)))
+                            .frame(width: 44, height: 44)
+                        Image(systemName: isSelected ? "waveform" : "music.note")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(isSelected ? Color.black : Theme.textSecondary)
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(song.title)
+                            .font(Theme.label(15))
+                            .foregroundStyle(Theme.textPrimary)
+                            .lineLimit(1)
+                        Text(cachedLabel(for: song))
+                            .font(Theme.label(11))
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+                    Spacer(minLength: 4)
                 }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(song.title)
-                        .font(Theme.label(15))
-                        .foregroundStyle(Theme.textPrimary)
-                    Text(cachedLabel(for: song))
-                        .font(Theme.label(11))
-                        .foregroundStyle(Theme.textSecondary)
-                }
-                Spacer()
+                .contentShape(Rectangle())
             }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(Color.white.opacity(isSelected ? 0.09 : 0.04))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(isSelected ? Theme.gold.alpha(0.6) : Color.clear, lineWidth: 1)
-            )
+            .buttonStyle(.plain)
+
+            if song.isImported {
+                Button {
+                    SongLibrary.delete(song)
+                    if selected?.id == song.id { selected = nil }
+                    onLibraryChanged()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .buttonStyle(.plain)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.white.opacity(isSelected ? 0.09 : 0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(isSelected ? Theme.gold.alpha(0.6) : Color.clear, lineWidth: 1)
+        )
     }
 
     private func cachedLabel(for song: Song) -> String {
-        if let map = GrooveMapStore.load(for: song) {
-            return "\(Int(map.bpm.rounded())) BPM ・ 解析済み"
+        if let summary = GrooveMapStore.summary(for: song) {
+            return "\(Int(summary.bpm.rounded())) BPM ・ 打点 \(summary.hitCount)"
         }
         return "未解析（初回のみ数秒かかります）"
     }

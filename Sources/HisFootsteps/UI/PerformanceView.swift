@@ -14,6 +14,9 @@ struct PerformanceView: View {
                     .allowsHitTesting(engine.mode.judgesFollow)
 
                 hud
+                    .allowsHitTesting(false)
+
+                stopButtonLayer
 
                 if engine.phase == .countIn {
                     countInOverlay
@@ -47,7 +50,6 @@ struct PerformanceView: View {
         .padding(.horizontal, 20)
         .padding(.top, 54)
         .padding(.bottom, 34)
-        .allowsHitTesting(true)
     }
 
     private var topBar: some View {
@@ -61,20 +63,32 @@ struct PerformanceView: View {
                     .tracking(1)
                     .foregroundStyle(Theme.textSecondary)
             }
-
             Spacer()
-
-            Button {
-                engine.finish()
-            } label: {
-                Image(systemName: "stop.fill")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Theme.textSecondary)
-                    .frame(width: 34, height: 34)
-                    .background(Circle().fill(Color.white.opacity(0.08)))
-            }
-            .buttonStyle(.plain)
+            Color.clear.frame(width: 34, height: 34)
         }
+    }
+
+    /// 停止ボタンだけは指の操作を受け取る。HUD全体を当たり判定にすると
+    /// 画面をなぞる指がHUDに吸われてステージに届かなくなる。
+    private var stopButtonLayer: some View {
+        VStack {
+            HStack {
+                Spacer()
+                Button {
+                    engine.finish()
+                } label: {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(Color.white.opacity(0.08)))
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 54)
     }
 
     private var bottomBar: some View {

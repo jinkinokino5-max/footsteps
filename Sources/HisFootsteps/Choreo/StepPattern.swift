@@ -62,8 +62,10 @@ enum StepPattern: CaseIterable {
         var foot = startFoot
         var out: [StepMove] = []
 
-        for (i, beat) in beats.enumerated() {
-            let slots = self.slots(atBeat: i, energy: energy, startPosition: startPosition)
+        // 小節内の位置は必ず beatInBar で見る。イントロなどで拍が欠けた小節でも、
+        // パターンの1拍目が小節頭に落ちるようにするため。
+        for beat in beats {
+            let slots = self.slots(atBeat: beat.beatInBar, energy: energy, startPosition: startPosition)
             for slot in slots {
                 let position = StepPattern.clamped(
                     CGPoint(x: slot.position.x + CGFloat(jitterX), y: slot.position.y + CGFloat(jitterY))
