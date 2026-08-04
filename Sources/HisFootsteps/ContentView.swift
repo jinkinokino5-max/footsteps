@@ -10,7 +10,14 @@ struct ContentView: View {
     @State private var beatAnalysisError: String?
     @State private var footstepScheduler = BeatScheduler()
     @State private var beatBounceCounter = 0
-    @State private var isLeftFoot = true
+
+    @StateObject private var followTracker = FollowTracker()
+    @State private var currentBeatIndex = 0
+    @State private var touchLocation: CGPoint?
+    @State private var stageSize: CGSize = .zero
+    @State private var isTrackingRun = false
+    @State private var followSummary: FollowSummary?
+    @State private var trackingToken = UUID()
 
     var body: some View {
         VStack(spacing: 24) {
@@ -22,12 +29,7 @@ struct ContentView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Image(systemName: "shoeprints.fill")
-                .font(.system(size: 56))
-                .symbolEffect(.bounce, value: beatBounceCounter)
-                .offset(x: isLeftFoot ? -40 : 40)
-                .animation(.easeInOut(duration: 0.15), value: isLeftFoot)
-                .frame(height: 80)
+            followStage
 
             Button("ハプティクスをテスト") {
                 HapticsManager.shared.playTestTap()
@@ -79,9 +81,7 @@ struct ContentView: View {
                 if selectedSong != nil {
                     Button(player.isPlaying ? "停止" : "再生") {
                         if player.isPlaying {
-                            player.stop()
-                            HapticsManager.shared.stopBeatPattern()
-                            footstepScheduler.cancel()
+                            stopBeatSyncedPlayback()
                         } else {
                             player.play()
                         }
@@ -107,14 +107,7 @@ struct ContentView: View {
 
                         if !beatResult.beatTimestamps.isEmpty {
                             Button("ビートに合わせて再生") {
-                                HapticsManager.shared.playBeatPattern(beatTimestamps: beatResult.beatTimestamps)
-                                footstepScheduler.cancel()
-                                footstepScheduler = BeatScheduler()
-                                footstepScheduler.schedule(beatTimestamps: beatResult.beatTimestamps) {
-                                    beatBounceCounter += 1
-                                    isLeftFoot.toggle()
-                                }
-                                player.play()
+                                startBeatSyncedPlayback(beatTimestamps: beatResult.beatTimestamps)
                             }
                             .buttonStyle(.borderedProminent)
                             .tint(.orange)
@@ -127,6 +120,19 @@ struct ContentView: View {
                             .font(.footnote)
                             .foregroundStyle(.red)
                             .multilineTextAlignment(.center)
+                    }
+
+                    if let followSummary {
+                        VStack(spacing: 4) {
+                            Text("追従精度: \(String(format: "%.1f", followSummary.accuracyPercent))%")
+                                .font(.headline)
+                            Text(followSummary.comment)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .padding()
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
                     }
                 }
             }
@@ -142,6 +148,84 @@ struct ContentView: View {
         .onAppear {
             songs = BundledSongLibrary.loadAll()
         }
+    }
+
+    /// 足跡の目標軌跡と、指の追従位置を表示・記録するステージ（Phase6：指のなぞり追従判定）
+    private var followStage: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 16)
+                .fill(.thinMaterial)
+
+            let target = FootstepPath.position(forBeatIndex: currentBeatIndex, in: stageSize)
+            Image(systemName: "shoeprints.fill")
+                .font(.system(size: 40))
+                .foregroundStyle(.orange)
+                .symbolEffect(.bounce, value: beatBounceCounter)
+                .position(target)
+                .animation(.easeInOut(duration: 0.15), value: currentBeatIndex)
+
+            if let touchLocation {
+                Circle()
+                    .stroke(Color.blue, lineWidth: 3)
+                    .frame(width: 36, height: 36)
+                    .position(touchLocation)
+            }
+        }
+        .frame(height: 220)
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { stageSize = proxy.size }
+                    .onChange(of: proxy.size) { _, newSize in stageSize = newSize }
+            }
+        )
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in touchLocation = value.location }
+                .onEnded { _ in touchLocation = nil }
+        )
+    }
+
+    private func startBeatSyncedPlayback(beatTimestamps: [TimeInterval]) {
+        let token = UUID()
+        trackingToken = token
+
+        currentBeatIndex = 0
+        followSummary = nil
+        followTracker.reset()
+        isTrackingRun = true
+
+        HapticsManager.shared.playBeatPattern(beatTimestamps: beatTimestamps)
+        footstepScheduler.cancel()
+        footstepScheduler = BeatScheduler()
+        footstepScheduler.schedule(beatTimestamps: beatTimestamps) {
+            let target = FootstepPath.position(forBeatIndex: currentBeatIndex, in: stageSize)
+            followTracker.record(beatIndex: currentBeatIndex, targetPosition: target, touchLocation: touchLocation)
+            currentBeatIndex += 1
+            beatBounceCounter += 1
+        }
+        player.play()
+
+        if let lastBeat = beatTimestamps.last {
+            DispatchQueue.main.asyncAfter(deadline: .now() + lastBeat + 0.6) {
+                guard trackingToken == token else { return }
+                finishTracking()
+            }
+        }
+    }
+
+    private func stopBeatSyncedPlayback() {
+        player.stop()
+        HapticsManager.shared.stopBeatPattern()
+        footstepScheduler.cancel()
+        finishTracking()
+    }
+
+    private func finishTracking() {
+        guard isTrackingRun else { return }
+        isTrackingRun = false
+        let maxAcceptableDistance = max(stageSize.width, stageSize.height) * 0.25
+        followSummary = followTracker.summary(maxAcceptableDistance: maxAcceptableDistance)
     }
 
     private func analyzeBeats() {
