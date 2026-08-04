@@ -125,15 +125,14 @@ enum GrooveAnalyzer {
     }
 
     private static func computeSpectra(url: URL, progress: ((Double) -> Void)?) throws -> SpectralFeatures {
-        guard let file = try? AVAudioFile(forReading: url) else {
-            throw GrooveAnalyzerError.cannotOpenFile
+        // デコードはAudioDecoderに任せる（圧縮音源の終端で読み取りが失敗する問題への対処を含む）
+        let decoded = try AudioDecoder.decodeMono(url: url) { value in
+            progress?(min(0.45, value * 0.45))
         }
-        let format = file.processingFormat
-        let totalFrames = file.length
-        guard totalFrames > 0 else { throw GrooveAnalyzerError.emptyFile }
 
-        let sampleRate = format.sampleRate
-        guard sampleRate > 0 else { throw GrooveAnalyzerError.emptyFile }
+        let sampleRate = decoded.sampleRate
+        let samples = decoded.samples
+        guard sampleRate > 0, samples.count > fftSize * 4 else { throw GrooveAnalyzerError.emptyFile }
         guard let fft = FFTProcessor(size: fftSize) else { throw GrooveAnalyzerError.fftUnavailable }
 
         let binCount = fft.binCount
@@ -144,61 +143,32 @@ enum GrooveAnalyzer {
         let midLo = bin(180), midHi = max(bin(180) + 1, bin(2200))
         let highLo = bin(2600), highHi = max(bin(2600) + 1, bin(11000))
 
-        let chunkCapacity: AVAudioFrameCount = 1 << 16
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunkCapacity) else {
-            throw GrooveAnalyzerError.cannotOpenFile
-        }
+        let frameCount = (samples.count - fftSize) / hopSize + 1
+        var lowMag = [Float](repeating: 0, count: frameCount)
+        var midMag = [Float](repeating: 0, count: frameCount)
+        var highMag = [Float](repeating: 0, count: frameCount)
 
-        let expectedFrames = max(16, Int(Double(totalFrames) / Double(hopSize)) + 2)
-        var lowMag = [Float](); lowMag.reserveCapacity(expectedFrames)
-        var midMag = [Float](); midMag.reserveCapacity(expectedFrames)
-        var highMag = [Float](); highMag.reserveCapacity(expectedFrames)
+        let lowWidth = Float(lowHi - lowLo)
+        let midWidth = Float(midHi - midLo)
+        let highWidth = Float(highHi - highLo)
+        let progressStride = max(1, frameCount / 40)
 
-        var pending = [Float]()
-        pending.reserveCapacity(Int(chunkCapacity) + fftSize)
-        let channelCount = Int(format.channelCount)
-
-        while true {
-            try file.read(into: buffer)
-            let n = Int(buffer.frameLength)
-            if n == 0 { break }
-            guard let channelData = buffer.floatChannelData else { break }
-
-            var mono = [Float](repeating: 0, count: n)
-            mono.withUnsafeMutableBufferPointer { mp in
-                guard let dst = mp.baseAddress else { return }
-                dst.update(from: channelData[0], count: n)
-                if channelCount > 1 {
-                    for c in 1..<channelCount {
-                        vDSP_vadd(dst, 1, channelData[c], 1, dst, 1, vDSP_Length(n))
-                    }
-                    var scale = 1.0 / Float(channelCount)
-                    vDSP_vsmul(dst, 1, &scale, dst, 1, vDSP_Length(n))
-                }
-            }
-            pending.append(contentsOf: mono)
-
-            var pos = 0
-            while pos + fftSize <= pending.count {
-                pending.withUnsafeBufferPointer { bp in
-                    guard let base = bp.baseAddress else { return }
-                    fft.process(base + pos)
-                }
+        samples.withUnsafeBufferPointer { bp in
+            guard let base = bp.baseAddress else { return }
+            for frame in 0..<frameCount {
+                fft.process(base + frame * hopSize)
                 let mags = fft.magnitudes
                 var lo: Float = 0, md: Float = 0, hi: Float = 0
                 for i in lowLo..<lowHi { lo += mags[i] }
                 for i in midLo..<midHi { md += mags[i] }
                 for i in highLo..<highHi { hi += mags[i] }
-                lowMag.append(lo / Float(lowHi - lowLo))
-                midMag.append(md / Float(midHi - midLo))
-                highMag.append(hi / Float(highHi - highLo))
-                pos += hopSize
-            }
-            if pos > 0 { pending.removeFirst(pos) }
+                lowMag[frame] = lo / lowWidth
+                midMag[frame] = md / midWidth
+                highMag[frame] = hi / highWidth
 
-            if let progress {
-                let ratio = Double(file.framePosition) / Double(totalFrames)
-                progress(min(0.7, ratio * 0.7))
+                if frame % progressStride == 0 {
+                    progress?(0.45 + 0.25 * Double(frame) / Double(frameCount))
+                }
             }
         }
 
@@ -206,7 +176,7 @@ enum GrooveAnalyzer {
 
         return SpectralFeatures(
             frameRate: sampleRate / Double(hopSize),
-            duration: Double(totalFrames) / sampleRate,
+            duration: decoded.duration,
             lowFlux: flux(lowMag),
             midFlux: flux(midMag),
             highFlux: flux(highMag),

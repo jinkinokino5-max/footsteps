@@ -52,7 +52,7 @@ final class AnalysisCoordinator: ObservableObject {
                 DispatchQueue.main.async {
                     guard let self else { return }
                     self.isRunning = false
-                    self.errorMessage = "解析に失敗しました: \(error.localizedDescription)"
+                    self.errorMessage = "「\(song.title)」の解析に失敗しました。\n\(error.localizedDescription)\n対応形式は mp3 / m4a / wav / aac です。別の曲で試すか、曲を入れ直してください。"
                 }
             }
         }
