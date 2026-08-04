@@ -26,16 +26,18 @@ enum MoveStyle: Int, Codable {
     /// 完全静止のキメ。
     case freeze
 
-    /// 拍のうち何割の時間を移動に使うか
+    /// 拍のうち何割の時間を移動に使うか。
+    /// 短すぎると指が物理的に追いつけず全部MISSになるので、
+    /// 「踏み込み」の質感を保てる範囲でいちばん長く取っている。
     var travelRatio: Double {
         switch self {
-        case .plant: return 0.42
+        case .plant: return 0.52
         case .glide: return 1.0
-        case .snap: return 0.26
+        case .snap: return 0.34
         case .spin: return 0.8
-        case .toeStand: return 0.5
-        case .kick: return 0.35
-        case .freeze: return 0.3
+        case .toeStand: return 0.55
+        case .kick: return 0.42
+        case .freeze: return 0.35
         }
     }
 }

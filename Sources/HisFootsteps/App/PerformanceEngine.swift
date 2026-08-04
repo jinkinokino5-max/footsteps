@@ -108,7 +108,7 @@ final class PerformanceEngine: ObservableObject {
     private(set) var lastJudgement: Judgement?
     private(set) var lastJudgementTime: TimeInterval = -10
 
-    /// ステップ重視モードで先読み表示する次のステップ
+    /// 先読み表示する次のステップ（モードによって1〜3歩先まで）
     private(set) var previewMoves: [StepMove] = []
 
     // MARK: - 内部
@@ -317,8 +317,9 @@ final class PerformanceEngine: ObservableObject {
                 )
                 spawnLandingDust(at: move.position, accent: move.accent)
             }
-            if footprints.count > 26 {
-                footprints.removeFirst(footprints.count - 26)
+            // 描画コストの上限。古い足跡は薄くて見えないので持ち続ける意味がない。
+            if footprints.count > 16 {
+                footprints.removeFirst(footprints.count - 16)
             }
             lastMoveIndexSeen = reached
         }
@@ -420,12 +421,9 @@ final class PerformanceEngine: ObservableObject {
     }
 
     private func updatePreview() {
-        guard mode.showsPathPreview else {
-            if !previewMoves.isEmpty { previewMoves = [] }
-            return
-        }
-        let start = choreography.firstMoveIndex(after: audioTime)
-        let end = min(choreography.moves.count, start + 3)
+        // 「今向かっている一歩」の次から先を見せる（今の一歩は実体で描かれているため）
+        let start = choreography.firstMoveIndex(after: audioTime) + 1
+        let end = min(choreography.moves.count, start + mode.previewCount)
         previewMoves = start < end ? Array(choreography.moves[start..<end]) : []
     }
 
@@ -473,8 +471,8 @@ final class PerformanceEngine: ObservableObject {
     }
 
     private func capParticles() {
-        if particles.count > 320 {
-            particles.removeFirst(particles.count - 320)
+        if particles.count > 220 {
+            particles.removeFirst(particles.count - 220)
         }
     }
 

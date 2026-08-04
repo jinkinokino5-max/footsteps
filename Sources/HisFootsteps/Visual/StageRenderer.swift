@@ -276,6 +276,7 @@ struct StageRenderer {
             let fade = max(0, 1 - age / 4.5)
             let freshness = max(0, 1 - age / 0.45)
             let alpha = 0.14 + 0.6 * fade * fade + 0.35 * freshness
+            guard alpha > 0.07 else { continue }
 
             drawSole(
                 &context,
@@ -290,17 +291,39 @@ struct StageRenderer {
         }
     }
 
+    /// 次に踏む場所をゴーストで先出しする。ここが無いと初見では足跡に追いつけない。
     private func drawPreview(_ context: inout GraphicsContext) {
         guard !engine.previewMoves.isEmpty else { return }
-        let length = size.height * 0.10
+        let length = size.height * 0.105
+        var layer = context
+        layer.blendMode = .plusLighter
+
+        // 今いる場所から次の場所へ向かう案内線
+        if let next = engine.previewMoves.first {
+            let from = point(engine.target.position)
+            let to = point(next.position)
+            var guideline = Path()
+            guideline.move(to: from)
+            let control = CGPoint(x: (from.x + to.x) / 2, y: min(from.y, to.y) - size.height * 0.035)
+            guideline.addQuadCurve(to: to, control: control)
+            layer.stroke(
+                guideline,
+                with: .color(Theme.neon.alpha(0.22)),
+                style: StrokeStyle(lineWidth: 1.6, lineCap: .round, dash: [5, 7])
+            )
+        }
+
         for (index, move) in engine.previewMoves.enumerated() {
-            let alpha = 0.30 - Double(index) * 0.09
+            let alpha = 0.34 - Double(index) * 0.10
             guard alpha > 0.02 else { continue }
-            var layer = context
-            layer.blendMode = .plusLighter
-            let rect = footRect(at: point(move.position), length: length)
-            var sole = FootprintShape.path(in: rect, mirrored: move.foot.mirrored)
-            sole = rotated(sole, around: point(move.position), degrees: move.rotation)
+            let center = point(move.position)
+            let rect = footRect(at: center, length: length)
+            let sole = rotated(
+                FootprintShape.path(in: rect, mirrored: move.foot.mirrored),
+                around: center,
+                degrees: move.rotation
+            )
+            layer.fill(sole, with: .color(Theme.neon.alpha(alpha * 0.22)))
             layer.stroke(sole, with: .color(Theme.neon.alpha(alpha)), lineWidth: 1.4)
         }
     }

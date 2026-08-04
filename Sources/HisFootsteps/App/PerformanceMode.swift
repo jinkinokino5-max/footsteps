@@ -30,8 +30,16 @@ enum PerformanceMode: String, CaseIterable, Identifiable, Codable {
     /// 指の追従を採点するか
     var judgesFollow: Bool { self != .watch }
 
-    /// 次のステップのゴーストを表示するか
-    var showsPathPreview: Bool { self == .stepFocus }
+    /// 次のステップをいくつ先まで見せるか。
+    /// 0だと初見の人は次にどこへ足が飛ぶか分からず、全部MISSになって体験が終わる。
+    /// どのモードでも最低1歩先は必ず見せる。
+    var previewCount: Int {
+        switch self {
+        case .beatFocus: return 1
+        case .stepFocus: return 3
+        case .watch: return 1
+        }
+    }
 
     /// 閃光・パーティクルの量
     var spectacle: Double {
