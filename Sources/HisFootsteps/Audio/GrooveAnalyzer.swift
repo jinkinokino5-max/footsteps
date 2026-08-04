@@ -48,10 +48,11 @@ enum GrooveAnalyzer {
         envelope = smoothed(envelope, radius: 1)
 
         let tracked = trackBeats(envelope: envelope, frameRate: frameRate, duration: features.duration)
+        let folded = foldedTempo(times: tracked.times, period: tracked.period, lowFlux: lowN, frameRate: frameRate)
         progress?(0.85)
 
-        let beatTimes = tracked.times
-        let period = tracked.period
+        let beatTimes = folded.times
+        let period = folded.period
 
         let downbeatOffset = estimateDownbeatOffset(
             beatTimes: beatTimes,
@@ -471,6 +472,57 @@ enum GrooveAnalyzer {
         return out
     }
 
+    /// テンポを「人が足で踏める範囲」（76〜152BPM）へ畳む。
+    ///
+    /// 自己相関は8分音符を拍として掴むことが多く、実測でも 97BPM の曲が 195BPM として出た。
+    /// そのままだと足跡が毎秒3歩以上動いて指で追えず、16分グリッドも77msまで詰まって
+    /// 触覚が団子になる。ここで倍テンポを畳み、半テンポは割って、体で踏める拍に揃える。
+    private static func foldedTempo(
+        times: [TimeInterval],
+        period: TimeInterval,
+        lowFlux: [Float],
+        frameRate: Double
+    ) -> (times: [TimeInterval], period: TimeInterval) {
+        var times = times
+        var period = period
+
+        // 速すぎる：1つおきに間引く（低域が強い方の位相を残す）
+        var folds = 0
+        while period > 0, 60.0 / period > 152, times.count >= 8, folds < 2 {
+            var bestPhase = 0
+            var bestScore = -Double.greatestFiniteMagnitude
+            for phase in 0..<2 {
+                var score = 0.0
+                for (i, t) in times.enumerated() where i % 2 == phase {
+                    score += Double(sampleMax(lowFlux, time: t, frameRate: frameRate, radius: 2))
+                }
+                if score > bestScore {
+                    bestScore = score
+                    bestPhase = phase
+                }
+            }
+            times = times.enumerated().filter { $0.offset % 2 == bestPhase }.map { $0.element }
+            period *= 2
+            folds += 1
+        }
+
+        // 遅すぎる：中間に拍を挿す
+        var splits = 0
+        while period > 0, 60.0 / period < 68, times.count >= 2, splits < 2 {
+            var out: [TimeInterval] = [times[0]]
+            out.reserveCapacity(times.count * 2)
+            for i in 1..<times.count {
+                out.append((times[i - 1] + times[i]) / 2)
+                out.append(times[i])
+            }
+            times = out
+            period /= 2
+            splits += 1
+        }
+
+        return (times, period)
+    }
+
     private static func uniformGrid(period: TimeInterval, duration: TimeInterval) -> [TimeInterval] {
         guard period > 0, duration > 0 else { return [] }
         var out: [TimeInterval] = []
@@ -545,6 +597,8 @@ enum GrooveAnalyzer {
 
         var gridTimes: [(time: TimeInterval, bar: Int, step: Int, beatInBar: Int, onBeat: Bool)] = []
         gridTimes.reserveCapacity(beats.count * 4)
+        /// 小節頭だけを集めた強さ。アクセント（キメ）の閾値をここから決める。
+        var downbeatSums: [Float] = []
 
         for i in 0..<(beats.count - 1) {
             let b = beats[i]
@@ -553,9 +607,14 @@ enum GrooveAnalyzer {
             for s in 0..<4 {
                 let t = beatTimes[i] + span * Double(s) / 4.0
                 gridTimes.append((time: t, bar: b.bar, step: b.beatInBar * 4 + s, beatInBar: b.beatInBar, onBeat: s == 0))
-                lowSamples.append(sampleMax(lowFlux, time: t, frameRate: frameRate, radius: 1))
-                midSamples.append(sampleMax(midFlux, time: t, frameRate: frameRate, radius: 1))
+                let low = sampleMax(lowFlux, time: t, frameRate: frameRate, radius: 1)
+                let mid = sampleMax(midFlux, time: t, frameRate: frameRate, radius: 1)
+                lowSamples.append(low)
+                midSamples.append(mid)
                 highSamples.append(sampleMax(highFlux, time: t, frameRate: frameRate, radius: 1))
+                if s == 0, b.beatInBar == 0 {
+                    downbeatSums.append(low + mid)
+                }
             }
         }
 
@@ -564,7 +623,8 @@ enum GrooveAnalyzer {
         let kickThreshold = max(0.45, percentile(lowSamples, 0.72))
         let snareThreshold = max(0.45, percentile(midSamples, 0.74))
         let hatThreshold = max(0.35, percentile(highSamples, 0.62))
-        let accentThreshold = percentile(lowSamples, 0.985) + percentile(midSamples, 0.985)
+        // 小節頭のうち上位12%程度をキメにする（おおよそ8小節に1回）
+        let accentThreshold = downbeatSums.isEmpty ? Float.greatestFiniteMagnitude : percentile(downbeatSums, 0.88)
 
         var hits: [GrooveHit] = []
         hits.reserveCapacity(gridTimes.count)
@@ -575,24 +635,32 @@ enum GrooveAnalyzer {
             let high = highSamples[index]
 
             if g.onBeat {
-                // 拍の上は必ず鳴らす。検出できなければ 1・3拍＝キック、2・4拍＝スネアの定石で補う。
+                // 拍の上は必ず鳴らす。
+                //
+                // 実測すると、キックとスネアが同時に鳴る曲では低域が常に勝ってしまい、
+                // 4拍すべてがキックになって「毎拍おなじ触感」＝グルーヴが消えていた。
+                // ポップスの骨格は 1・3拍＝キック、2・4拍＝スネア のバックビートなので、
+                // その定石を軸にし、片方が圧倒的なときだけ入れ替える。
+                let isBackbeat = g.beatInBar % 2 == 1
+                let lowScore = low / kickThreshold
+                let midScore = mid / snareThreshold
+
                 var kind: HitKind
-                var strength: Float
-                if low >= kickThreshold {
-                    kind = .kick
-                    strength = normalize(low, threshold: kickThreshold)
-                } else if mid >= snareThreshold {
-                    kind = .snare
-                    strength = normalize(mid, threshold: snareThreshold)
+                if isBackbeat {
+                    kind = (midScore < 0.35 && lowScore >= 1.2) ? .kick : .snare
                 } else {
-                    kind = (g.beatInBar % 2 == 0) ? .kick : .snare
-                    strength = 0.62
+                    kind = (lowScore < 0.35 && midScore >= 1.2) ? .snare : .kick
                 }
+
+                var strength = kind == .kick
+                    ? normalize(low, threshold: kickThreshold)
+                    : normalize(mid, threshold: snareThreshold)
+
                 if low + mid >= accentThreshold, g.beatInBar == 0 {
                     kind = .accent
                     strength = 1.0
                 }
-                strength = max(strength, g.beatInBar == 0 ? 0.85 : 0.7)
+                strength = max(strength, g.beatInBar == 0 ? 0.88 : 0.74)
                 hits.append(GrooveHit(time: g.time, kind: kind, strength: min(1, strength), bar: g.bar, step: g.step))
             } else {
                 if low >= kickThreshold * 1.12 {
@@ -614,7 +682,7 @@ enum GrooveAnalyzer {
 
     private static func normalize(_ value: Float, threshold: Float) -> Float {
         guard threshold > 0 else { return 0.7 }
-        return min(1, 0.55 + 0.45 * (value - threshold) / (threshold * 1.6))
+        return min(1, max(0.3, 0.55 + 0.45 * (value - threshold) / (threshold * 1.6)))
     }
 
     /// 近すぎる打点は触覚的に潰れるので、強い方だけ残す

@@ -56,7 +56,7 @@ struct GrooveBeat: Codable, Sendable {
 /// 曲を解析して得た「グルーヴの設計図」。
 /// ハプティクス・振付・ビジュアルはすべてこの1つの地図から駆動される。
 struct GrooveMap: Codable, Sendable {
-    static let currentVersion = 3
+    static let currentVersion = 4
 
     let version: Int
     let songID: String
