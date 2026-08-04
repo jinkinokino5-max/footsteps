@@ -18,6 +18,7 @@ struct ContentView: View {
     @State private var isTrackingRun = false
     @State private var followSummary: FollowSummary?
     @State private var trackingToken = UUID()
+    @State private var selectedMode: AppMode = .stepFocused
 
     var body: some View {
         VStack(spacing: 24) {
@@ -29,7 +30,15 @@ struct ContentView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            Picker("モード", selection: $selectedMode) {
+                ForEach(AppMode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+
             followStage
+                .allowsHitTesting(selectedMode.isFollowJudgeEnabled)
 
             Button("ハプティクスをテスト") {
                 HapticsManager.shared.playTestTap()
@@ -164,7 +173,7 @@ struct ContentView: View {
                 .position(target)
                 .animation(.easeInOut(duration: 0.15), value: currentBeatIndex)
 
-            if let touchLocation {
+            if let touchLocation, selectedMode.isFollowJudgeEnabled {
                 Circle()
                     .stroke(Color.blue, lineWidth: 3)
                     .frame(width: 36, height: 36)
@@ -193,14 +202,16 @@ struct ContentView: View {
         currentBeatIndex = 0
         followSummary = nil
         followTracker.reset()
-        isTrackingRun = true
+        isTrackingRun = selectedMode.isFollowJudgeEnabled
 
-        HapticsManager.shared.playBeatPattern(beatTimestamps: beatTimestamps)
+        HapticsManager.shared.playBeatPattern(beatTimestamps: beatTimestamps, intensity: selectedMode.hapticIntensity)
         footstepScheduler.cancel()
         footstepScheduler = BeatScheduler()
         footstepScheduler.schedule(beatTimestamps: beatTimestamps) {
-            let target = FootstepPath.position(forBeatIndex: currentBeatIndex, in: stageSize)
-            followTracker.record(beatIndex: currentBeatIndex, targetPosition: target, touchLocation: touchLocation)
+            if selectedMode.isFollowJudgeEnabled {
+                let target = FootstepPath.position(forBeatIndex: currentBeatIndex, in: stageSize)
+                followTracker.record(beatIndex: currentBeatIndex, targetPosition: target, touchLocation: touchLocation)
+            }
             currentBeatIndex += 1
             beatBounceCounter += 1
         }
