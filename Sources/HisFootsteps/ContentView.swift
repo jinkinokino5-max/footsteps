@@ -1,10 +1,9 @@
-import MediaPlayer
 import SwiftUI
 
 struct ContentView: View {
     @State private var lastTappedAt: Date?
-    @State private var showPicker = false
-    @State private var selectedItem: MPMediaItem?
+    @State private var songs: [BundledSong] = []
+    @State private var selectedSong: BundledSong?
     @StateObject private var player = AudioPlayerManager.shared
 
     var body: some View {
@@ -35,31 +34,44 @@ struct ContentView: View {
 
             Divider()
 
-            Button("曲を選択") {
-                showPicker = true
-            }
-            .buttonStyle(.bordered)
+            Text("内蔵曲")
+                .font(.headline)
 
-            if let selectedItem {
-                VStack(spacing: 4) {
-                    Text(selectedItem.title ?? "不明な曲")
-                        .font(.headline)
-                    if let artist = selectedItem.artist {
-                        Text(artist)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+            if songs.isEmpty {
+                Text("内蔵曲がありません\n(Resources/Musicに曲ファイルを追加してください)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(songs) { song in
+                        Button {
+                            selectedSong = song
+                            player.load(song: song)
+                        } label: {
+                            HStack {
+                                Text(song.displayName)
+                                Spacer()
+                                if selectedSong?.id == song.id {
+                                    Image(systemName: "checkmark.circle.fill")
+                                }
+                            }
+                        }
+                        .buttonStyle(.bordered)
                     }
                 }
 
-                Button(player.isPlaying ? "停止" : "再生") {
-                    if player.isPlaying {
-                        player.stop()
-                    } else {
-                        player.play()
+                if selectedSong != nil {
+                    Button(player.isPlaying ? "停止" : "再生") {
+                        if player.isPlaying {
+                            player.stop()
+                        } else {
+                            player.play()
+                        }
                     }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(player.loadError != nil)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(player.loadError != nil)
             }
 
             if let loadError = player.loadError {
@@ -70,17 +82,8 @@ struct ContentView: View {
             }
         }
         .padding()
-        .sheet(isPresented: $showPicker) {
-            MediaPicker(
-                onPick: { item in
-                    showPicker = false
-                    selectedItem = item
-                    player.load(item: item)
-                },
-                onCancel: {
-                    showPicker = false
-                }
-            )
+        .onAppear {
+            songs = BundledSongLibrary.loadAll()
         }
     }
 }

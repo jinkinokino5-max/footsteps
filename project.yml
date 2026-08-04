@@ -11,6 +11,9 @@ targets:
     platform: iOS
     sources:
       - path: Sources/HisFootsteps
+      - path: Resources/Music
+        type: folder
+        buildPhase: resources
     info:
       path: Generated/Info.plist
       properties:
@@ -18,7 +21,6 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-        NSAppleMusicUsageDescription: "ビート検出のため、選択した曲の再生・解析に使用します。"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hisfootsteps.app

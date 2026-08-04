@@ -1,7 +1,6 @@
 import AVFoundation
-import MediaPlayer
 
-/// AVAudioEngineで選択曲を再生するクラス（Phase 2疎通確認用）
+/// AVAudioEngineでアプリ内蔵の楽曲（BundledSong）を再生するクラス
 final class AudioPlayerManager: ObservableObject {
     static let shared = AudioPlayerManager()
 
@@ -18,17 +17,12 @@ final class AudioPlayerManager: ObservableObject {
     }
 
     @discardableResult
-    func load(item: MPMediaItem) -> Bool {
+    func load(song: BundledSong) -> Bool {
         stop()
         audioFile = nil
 
-        guard let assetURL = item.assetURL else {
-            loadError = "この曲はローカルに保存されていないため再生できません（Apple Music DRM等）"
-            return false
-        }
-
         do {
-            let file = try AVAudioFile(forReading: assetURL)
+            let file = try AVAudioFile(forReading: song.url)
             engine.connect(playerNode, to: engine.mainMixerNode, format: file.processingFormat)
             audioFile = file
             loadError = nil
