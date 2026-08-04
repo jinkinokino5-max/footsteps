@@ -50,6 +50,21 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             build 2>&1 | tee build.log
 
+      - name: Publish compile errors as annotation (readable without a token)
+        if: always()
+        run: |
+          if [ -f build.log ]; then
+            ERRORS=$(grep -E "(error:|warning: .*deprecated|Command .* failed)" build.log | head -n 60 || true)
+            if [ -n "$ERRORS" ]; then
+              ESCAPED="${ERRORS//%/%25}"
+              ESCAPED="${ESCAPED//$'\r'/%0D}"
+              ESCAPED="${ESCAPED//$'\n'/%0A}"
+              echo "::notice title=CompileErrors::${ESCAPED:0:8000}"
+            else
+              echo "::notice title=CompileErrors::NO_ERROR_LINES_FOUND"
+            fi
+          fi
+
       - name: Publish build log tail as annotation (readable without a token)
         if: always()
         run: |
