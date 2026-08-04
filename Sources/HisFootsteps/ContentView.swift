@@ -5,6 +5,9 @@ struct ContentView: View {
     @State private var songs: [BundledSong] = []
     @State private var selectedSong: BundledSong?
     @StateObject private var player = AudioPlayerManager.shared
+    @State private var isAnalyzingBeats = false
+    @State private var beatResult: BeatDetectionResult?
+    @State private var beatAnalysisError: String?
 
     var body: some View {
         VStack(spacing: 24) {
@@ -48,6 +51,8 @@ struct ContentView: View {
                         Button {
                             selectedSong = song
                             player.load(song: song)
+                            beatResult = nil
+                            beatAnalysisError = nil
                         } label: {
                             HStack {
                                 Text(song.displayName)
@@ -71,6 +76,30 @@ struct ContentView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(player.loadError != nil)
+
+                    Button(isAnalyzingBeats ? "解析中..." : "拍を解析") {
+                        analyzeBeats()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isAnalyzingBeats || player.loadError != nil)
+
+                    if let beatResult {
+                        VStack(spacing: 4) {
+                            if let bpm = beatResult.estimatedBPM {
+                                Text("推定BPM: \(String(format: "%.1f", bpm))")
+                            }
+                            Text("検出した拍の数: \(beatResult.beatTimestamps.count)")
+                        }
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
+
+                    if let beatAnalysisError {
+                        Text(beatAnalysisError)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.center)
+                    }
                 }
             }
 
@@ -84,6 +113,28 @@ struct ContentView: View {
         .padding()
         .onAppear {
             songs = BundledSongLibrary.loadAll()
+        }
+    }
+
+    private func analyzeBeats() {
+        guard let selectedSong else { return }
+        isAnalyzingBeats = true
+        beatResult = nil
+        beatAnalysisError = nil
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let result = try BeatDetector.detectBeats(fileURL: selectedSong.url)
+                DispatchQueue.main.async {
+                    self.beatResult = result
+                    self.isAnalyzingBeats = false
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.beatAnalysisError = "拍検出に失敗しました: \(error.localizedDescription)"
+                    self.isAnalyzingBeats = false
+                }
+            }
         }
     }
 }
