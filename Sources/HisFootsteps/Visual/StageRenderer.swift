@@ -16,6 +16,12 @@ struct StageRenderer {
         CGPoint(x: p.x * size.width, y: p.y * size.height)
     }
 
+    /// 奥ほど小さく見せるための倍率。床の遠近と足跡の大きさが噛み合って初めて
+    /// 「舞台の上に立っている」ように見える。
+    private func depthScale(_ normalizedY: CGFloat) -> CGFloat {
+        0.62 + 0.62 * min(1, max(0, normalizedY))
+    }
+
     func render(into context: inout GraphicsContext) {
         // 背景だけは揺らさない（揺らすと画面端に隙間が出るため）
         drawBackground(&context)
@@ -152,13 +158,13 @@ struct StageRenderer {
             guard intensity > 0.02 else { continue }
 
             let center = point(flash.point)
-            let r = size.width * 0.006 * CGFloat(1 + intensity * 2)
+            let r = size.width * 0.0035 * CGFloat(1 + intensity * 2)
             layer.fill(
                 Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)),
                 with: .color(Color.white.alpha(min(0.85, intensity)))
             )
             layer.fill(
-                Path(ellipseIn: CGRect(x: center.x - r * 3.5, y: center.y - r * 3.5, width: r * 7, height: r * 7)),
+                Path(ellipseIn: CGRect(x: center.x - r * 2.6, y: center.y - r * 2.6, width: r * 5.2, height: r * 5.2)),
                 with: .color(Color.white.alpha(min(0.16, intensity * 0.2)))
             )
         }
@@ -203,22 +209,35 @@ struct StageRenderer {
     // MARK: - 歩いた軌跡
 
     private func drawTrailPath(_ context: inout GraphicsContext) {
-        let marks = engine.footprints
-        guard marks.count > 1 else { return }
+        // 直近の数歩だけ繋ぐ。全部繋ぐと折り返しが重なって落書きのように見える。
+        let all = engine.footprints
+        guard all.count > 1 else { return }
+        let marks = all.count > 7 ? Array(all.suffix(7)) : all
+
         var layer = context
         layer.blendMode = .plusLighter
 
+        // 左右の足を直接繋ぐとジグザグの落書きになる。
+        // 隣り合う足跡の中点＝重心を繋いで、身体が通った線として見せる。
+        var centers: [CGPoint] = []
+        for i in 0..<(marks.count - 1) {
+            let a = point(marks[i].position)
+            let b = point(marks[i + 1].position)
+            centers.append(CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2))
+        }
+        guard centers.count > 1 else { return }
+
         var path = Path()
-        path.move(to: point(marks[0].position))
-        for i in 1..<marks.count {
-            let previous = point(marks[i - 1].position)
-            let current = point(marks[i].position)
+        path.move(to: centers[0])
+        for i in 1..<centers.count {
+            let previous = centers[i - 1]
+            let current = centers[i]
             let mid = CGPoint(x: (previous.x + current.x) / 2, y: (previous.y + current.y) / 2)
             path.addQuadCurve(to: current, control: mid)
         }
 
-        layer.stroke(path, with: .color(Theme.gold.alpha(0.12)), lineWidth: 7)
-        layer.stroke(path, with: .color(Theme.gold.alpha(0.26)), lineWidth: 2)
+        layer.stroke(path, with: .color(Theme.gold.alpha(0.06)), lineWidth: 8)
+        layer.stroke(path, with: .color(Theme.gold.alpha(0.16)), lineWidth: 1.8)
     }
 
     // MARK: - スポットライト
@@ -253,7 +272,7 @@ struct StageRenderer {
         radial(
             &context,
             center: focus,
-            radius: size.width * CGFloat(0.34 + engine.kickFlash * 0.06),
+            radius: size.width * CGFloat(0.26 + engine.kickFlash * 0.06),
             yScale: 0.42,
             colors: [
                 Theme.spotWarm.alpha(0.30 + engine.kickFlash * 0.22),
@@ -268,7 +287,7 @@ struct StageRenderer {
 
     private func drawFootprintMarks(_ context: inout GraphicsContext) {
         let now = engine.audioTime
-        let length = size.height * 0.115
+        let length = size.height * 0.100
 
         for mark in engine.footprints {
             let age = now - mark.birth
@@ -282,7 +301,7 @@ struct StageRenderer {
                 &context,
                 at: point(mark.position),
                 rotation: mark.rotation,
-                length: length,
+                length: length * depthScale(mark.position.y),
                 foot: mark.foot,
                 fillAlpha: alpha * (mark.accent ? 1.0 : 0.85),
                 glow: freshness * (mark.accent ? 1.3 : 0.9),
@@ -294,7 +313,7 @@ struct StageRenderer {
     /// 次に踏む場所をゴーストで先出しする。ここが無いと初見では足跡に追いつけない。
     private func drawPreview(_ context: inout GraphicsContext) {
         guard !engine.previewMoves.isEmpty else { return }
-        let length = size.height * 0.105
+        let length = size.height * 0.098
         var layer = context
         layer.blendMode = .plusLighter
 
@@ -308,8 +327,8 @@ struct StageRenderer {
             guideline.addQuadCurve(to: to, control: control)
             layer.stroke(
                 guideline,
-                with: .color(Theme.neon.alpha(0.22)),
-                style: StrokeStyle(lineWidth: 1.6, lineCap: .round, dash: [5, 7])
+                with: .color(Theme.spotWarm.alpha(0.18)),
+                style: StrokeStyle(lineWidth: 1.4, lineCap: .round, dash: [4, 8])
             )
         }
 
@@ -317,21 +336,25 @@ struct StageRenderer {
             let alpha = 0.34 - Double(index) * 0.10
             guard alpha > 0.02 else { continue }
             let center = point(move.position)
-            let rect = footRect(at: center, length: length)
+            let rect = footRect(at: center, length: length * depthScale(move.position.y))
             let sole = rotated(
                 FootprintShape.path(in: rect, mirrored: move.foot.mirrored),
                 around: center,
                 degrees: move.rotation
             )
-            layer.fill(sole, with: .color(Theme.neon.alpha(alpha * 0.22)))
-            layer.stroke(sole, with: .color(Theme.neon.alpha(alpha)), lineWidth: 1.4)
+            layer.fill(sole, with: .color(Theme.spotWarm.alpha(alpha * 0.16)))
+            layer.stroke(
+                sole,
+                with: .color(Theme.spotWarm.alpha(alpha * 0.95)),
+                style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [4, 4])
+            )
         }
     }
 
     private func drawCurrentFoot(_ context: inout GraphicsContext) {
         let state = engine.target
         let center = point(state.position)
-        let length = size.height * 0.135 * CGFloat(state.scale)
+        let length = size.height * 0.122 * CGFloat(state.scale) * depthScale(state.position.y)
 
         // 拍に合わせて広がるリング
         let ringPhase = engine.beatPhase
@@ -421,7 +444,7 @@ struct StageRenderer {
             startPoint: CGPoint(x: rect.minX, y: rect.minY),
             endPoint: CGPoint(x: rect.maxX, y: rect.maxY)
         ))
-        layer.stroke(sole, with: .color(Theme.spotWarm.alpha(min(1, fillAlpha * 0.8))), lineWidth: 0.8)
+        layer.stroke(sole, with: .color(Color.white.alpha(min(1, fillAlpha * 0.9))), lineWidth: fillAlpha > 0.9 ? 1.6 : 0.8)
 
         let inner = rotated(FootprintShape.innerPath(in: rect, mirrored: foot.mirrored), around: center, degrees: rotation)
         layer.stroke(inner, with: .color(Color.black.opacity(min(0.5, fillAlpha * 0.45))), lineWidth: 1.0)

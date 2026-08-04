@@ -25,16 +25,27 @@ enum StepPattern: CaseIterable {
     case anchorSway
 
     /// ステージ内の安全域
-    private static let minX = 0.15
-    private static let maxX = 0.85
-    private static let minY = 0.22
-    private static let maxY = 0.84
+    private static let minX = 0.12
+    private static let maxX = 0.88
+    private static let minY = 0.30
+    private static let maxY = 0.87
 
     private static func clamped(_ point: CGPoint) -> CGPoint {
         CGPoint(
             x: CGFloat(min(maxX, max(minX, Double(point.x)))),
             y: CGFloat(min(maxY, max(minY, Double(point.y))))
         )
+    }
+
+    /// パターンの素の座標を、ステージ全体へ広げる。
+    ///
+    /// 素の値（x 0.29〜0.71 / y 0.44〜0.76）のまま描くと、画面のごく一部にしか
+    /// 足跡が現れず「狭いところでうろうろしている」ように見えてしまう。
+    /// 中心から外へ引き伸ばして、床の奥行きを使い切る。
+    private static func spread(_ point: CGPoint) -> CGPoint {
+        let x = 0.5 + (Double(point.x) - 0.5) * 1.18
+        let y = 0.575 + (Double(point.y) - 0.60) * 1.55
+        return clamped(CGPoint(x: x, y: y))
     }
 
     private struct Slot {
@@ -67,7 +78,7 @@ enum StepPattern: CaseIterable {
         for beat in beats {
             let slots = self.slots(atBeat: beat.beatInBar, energy: energy, startPosition: startPosition)
             for slot in slots {
-                let position = StepPattern.clamped(
+                let position = StepPattern.spread(
                     CGPoint(x: slot.position.x + CGFloat(jitterX), y: slot.position.y + CGFloat(jitterY))
                 )
                 let time = beat.time + beatPeriod * slot.offset
