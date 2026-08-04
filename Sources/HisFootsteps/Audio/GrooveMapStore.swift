@@ -9,7 +9,21 @@ struct GrooveSummary: Codable {
 
 /// 解析結果をキャッシュに保存し、2回目以降の起動を一瞬にするための保管庫。
 enum GrooveMapStore {
+    /// 解析はバックグラウンドで走り、選曲画面はメインから読むため、辞書は必ずロック越しに触る
     private static var summaryCache: [String: GrooveSummary] = [:]
+    private static let cacheLock = NSLock()
+
+    private static func cachedSummary(_ songID: String) -> GrooveSummary? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        return summaryCache[songID]
+    }
+
+    private static func storeSummary(_ summary: GrooveSummary, for songID: String) {
+        cacheLock.lock()
+        summaryCache[songID] = summary
+        cacheLock.unlock()
+    }
 
     private static var directory: URL? {
         guard let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
@@ -49,7 +63,7 @@ enum GrooveMapStore {
             try? data.write(to: url, options: .atomic)
         }
         let summary = GrooveSummary(bpm: map.bpm, beatCount: map.beats.count, hitCount: map.hits.count)
-        summaryCache[song.id] = summary
+        storeSummary(summary, for: song.id)
         if let url = summaryURL(for: song), let data = try? JSONEncoder().encode(summary) {
             try? data.write(to: url, options: .atomic)
         }
@@ -58,18 +72,20 @@ enum GrooveMapStore {
     // MARK: - 要約（選曲画面用）
 
     static func summary(for song: Song) -> GrooveSummary? {
-        if let cached = summaryCache[song.id] { return cached }
+        if let cached = cachedSummary(song.id) { return cached }
         guard let url = summaryURL(for: song),
               let data = try? Data(contentsOf: url),
               let summary = try? JSONDecoder().decode(GrooveSummary.self, from: data)
         else { return nil }
-        summaryCache[song.id] = summary
+        storeSummary(summary, for: song.id)
         return summary
     }
 
     /// 解析アルゴリズムを更新したときに古い世代のキャッシュを掃除する
     static func purgeOldVersions() {
+        cacheLock.lock()
         summaryCache.removeAll()
+        cacheLock.unlock()
         guard let directory,
               let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
         else { return }

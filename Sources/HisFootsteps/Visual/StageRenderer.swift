@@ -26,6 +26,7 @@ struct StageRenderer {
             y: engine.shakeOffset.y * size.height
         )
 
+        drawCrowdFlashes(&stage)
         drawFloor(&stage)
         drawBeams(&stage)
         drawSpotlight(&stage)
@@ -73,6 +74,11 @@ struct StageRenderer {
         var layer = context
         layer.blendMode = .plusLighter
 
+        // キックのたびに、床を手前から奥へ光の帯が走る
+        let rippleAge = engine.audioTime - engine.lastKickTime
+        let ripplePosition = 1.0 - rippleAge * 2.6
+        let rippleAlive = rippleAge >= 0 && rippleAge < 0.42
+
         for i in -1..<rows {
             let u = (Double(i) + scroll) / Double(rows)
             guard u > 0 else { continue }
@@ -81,9 +87,21 @@ struct StageRenderer {
             var line = Path()
             line.move(to: CGPoint(x: 0, y: y))
             line.addLine(to: CGPoint(x: size.width, y: y))
+
             let base = 0.045 + 0.20 * pow(u, 1.6)
             let pulse = engine.lowLevel * 0.30 * pow(u, 2.0)
-            layer.stroke(line, with: .color(Theme.gold.alpha(base + pulse)), lineWidth: 0.6 + CGFloat(u) * 1.4)
+            var ripple = 0.0
+            if rippleAlive {
+                let distance = abs(u - ripplePosition)
+                if distance < 0.13 {
+                    ripple = (1 - distance / 0.13) * (1 - rippleAge / 0.42) * 0.55
+                }
+            }
+            layer.stroke(
+                line,
+                with: .color(Theme.gold.alpha(base + pulse + ripple)),
+                lineWidth: 0.6 + CGFloat(u) * 1.4 + CGFloat(ripple) * 2.2
+            )
         }
 
         let vanishing = CGPoint(x: size.width * 0.5, y: horizon)
@@ -98,6 +116,51 @@ struct StageRenderer {
                 startPoint: vanishing,
                 endPoint: CGPoint(x: bottomX, y: size.height)
             ), lineWidth: 0.8)
+        }
+    }
+
+    // MARK: - 客席のフラッシュ
+
+    /// 暗がりに散らす観客のカメラフラッシュの位置。毎フレーム作り直さないよう固定で持つ。
+    private static let crowdFlashes: [(point: CGPoint, phase: Double, rate: Double)] = {
+        var state: UInt64 = 0xA13F_09C4_7721_55E1
+        func next() -> Double {
+            state ^= state << 13
+            state ^= state >> 7
+            state ^= state << 17
+            return Double(state % 100_000) / 100_000.0
+        }
+        return (0..<34).map { _ in
+            (
+                point: CGPoint(x: 0.02 + next() * 0.96, y: 0.17 + next() * 0.11),
+                phase: next() * 6.28,
+                rate: 0.5 + next() * 2.2
+            )
+        }
+    }()
+
+    private func drawCrowdFlashes(_ context: inout GraphicsContext) {
+        var layer = context
+        layer.blendMode = .plusLighter
+        let t = engine.audioTime
+        let burst = engine.accentFlash * 0.9 + engine.snareFlash * 0.35
+
+        for flash in StageRenderer.crowdFlashes {
+            // 各点が別々の周期で瞬く。キメの瞬間だけ一斉に焚かれる。
+            let twinkle = max(0, sin(t * flash.rate + flash.phase))
+            let intensity = pow(twinkle, 14) + burst * pow(twinkle, 3) * 0.8
+            guard intensity > 0.02 else { continue }
+
+            let center = point(flash.point)
+            let r = size.width * 0.006 * CGFloat(1 + intensity * 2)
+            layer.fill(
+                Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)),
+                with: .color(Color.white.alpha(min(0.85, intensity)))
+            )
+            layer.fill(
+                Path(ellipseIn: CGRect(x: center.x - r * 3.5, y: center.y - r * 3.5, width: r * 7, height: r * 7)),
+                with: .color(Color.white.alpha(min(0.16, intensity * 0.2)))
+            )
         }
     }
 

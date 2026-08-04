@@ -37,6 +37,15 @@ final class AudioEngineController: ObservableObject {
 
     // MARK: - 時計
 
+    /// 描画スレッドとハプティクスのスケジューラ（別キュー）の両方から読まれるので保護する
+    private let clockLock = NSLock()
+
+    private func resetClock() {
+        clockLock.lock()
+        lastKnownTime = 0
+        clockLock.unlock()
+    }
+
     /// 「今まさに耳に届いている」再生位置（秒）。
     ///
     /// `lastRenderTime`が示すのはスピーカーへ書き出し中の位置で、実際に聞こえるのはそれより
@@ -48,11 +57,17 @@ final class AudioEngineController: ObservableObject {
               let playerTime = player.playerTime(forNodeTime: nodeTime),
               playerTime.sampleRate > 0
         else {
-            return lastKnownTime
+            clockLock.lock()
+            let known = lastKnownTime
+            clockLock.unlock()
+            return known
         }
         let rendered = Double(playerTime.sampleTime) / playerTime.sampleRate
-        lastKnownTime = max(0, rendered - outputLatency)
-        return lastKnownTime
+        let heard = max(0, rendered - outputLatency)
+        clockLock.lock()
+        lastKnownTime = heard
+        clockLock.unlock()
+        return heard
     }
 
     /// 出力経路のレイテンシ。毎フレーム問い合わせると重いのでキャッシュする。
@@ -86,7 +101,7 @@ final class AudioEngineController: ObservableObject {
 
             file = audioFile
             duration = Double(audioFile.length) / format.sampleRate
-            lastKnownTime = 0
+            resetClock()
             errorMessage = nil
             return true
         } catch {
@@ -105,7 +120,7 @@ final class AudioEngineController: ObservableObject {
             if !engine.isRunning { try engine.start() }
 
             player.stop()
-            lastKnownTime = 0
+            resetClock()
             completionHandler = onFinish
 
             player.scheduleFile(file, at: nil, completionCallbackType: .dataPlayedBack) { [weak self] _ in
@@ -128,7 +143,7 @@ final class AudioEngineController: ObservableObject {
         completionHandler = nil
         if player.isPlaying { player.stop() }
         isPlaying = false
-        lastKnownTime = 0
+        resetClock()
     }
 
     /// 曲を止めずにエンジンだけ落としたい場面（バックグラウンド遷移など）

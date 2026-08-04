@@ -86,6 +86,8 @@ final class PerformanceEngine: ObservableObject {
     private var shakePhase: Double = 0
 
     private(set) var kickFlash: Double = 0
+    /// 直近のキックの時刻（床を走る波紋の起点）
+    private(set) var lastKickTime: TimeInterval = -10
     private(set) var snareFlash: Double = 0
     private(set) var accentFlash: Double = 0
     private(set) var hatShimmer: Double = 0
@@ -336,6 +338,7 @@ final class PerformanceEngine: ObservableObject {
             switch hit.kind {
             case .kick:
                 kickFlash = min(1.2, kickFlash + Double(hit.strength) * 0.95)
+                lastKickTime = hit.time
                 shakeAmount = max(shakeAmount, 0.0042 * Double(hit.strength))
                 spawnBurst(at: target.position, count: 7, tone: 0, power: Double(hit.strength))
             case .snare:
@@ -345,6 +348,7 @@ final class PerformanceEngine: ObservableObject {
             case .accent:
                 accentFlash = 1.2
                 kickFlash = 1.2
+                lastKickTime = hit.time
                 shakeAmount = max(shakeAmount, 0.0125)
                 spawnBurst(at: target.position, count: 26, tone: 0, power: 1.4)
                 spawnBurst(at: target.position, count: 12, tone: 1, power: 1.1)
