@@ -29,7 +29,8 @@ enum AudioDecoderError: Error, LocalizedError {
 /// AVAudioFileで取り切れなかった場合は、より頑健なAVAssetReaderへ切り替える。
 enum AudioDecoder {
     /// 解析対象の長さの上限（メモリ保護）。これを超える曲は先頭だけを解析する。
-    static let maxDuration: TimeInterval = 12 * 60
+    /// 48kHzモノラルFloatで10分＝約115MB。これ以上は端末が耐えられない可能性がある。
+    static let maxDuration: TimeInterval = 10 * 60
 
     struct Decoded {
         let samples: [Float]
