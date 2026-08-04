@@ -8,6 +8,9 @@ struct ContentView: View {
     @State private var isAnalyzingBeats = false
     @State private var beatResult: BeatDetectionResult?
     @State private var beatAnalysisError: String?
+    @State private var footstepScheduler = BeatScheduler()
+    @State private var beatBounceCounter = 0
+    @State private var isLeftFoot = true
 
     var body: some View {
         VStack(spacing: 24) {
@@ -18,6 +21,13 @@ struct ContentView: View {
             Text("Beat Trainer - Pipeline & Haptics Test")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            Image(systemName: "shoeprints.fill")
+                .font(.system(size: 56))
+                .symbolEffect(.bounce, value: beatBounceCounter)
+                .offset(x: isLeftFoot ? -40 : 40)
+                .animation(.easeInOut(duration: 0.15), value: isLeftFoot)
+                .frame(height: 80)
 
             Button("ハプティクスをテスト") {
                 HapticsManager.shared.playTestTap()
@@ -71,6 +81,7 @@ struct ContentView: View {
                         if player.isPlaying {
                             player.stop()
                             HapticsManager.shared.stopBeatPattern()
+                            footstepScheduler.cancel()
                         } else {
                             player.play()
                         }
@@ -97,6 +108,12 @@ struct ContentView: View {
                         if !beatResult.beatTimestamps.isEmpty {
                             Button("ビートに合わせて再生") {
                                 HapticsManager.shared.playBeatPattern(beatTimestamps: beatResult.beatTimestamps)
+                                footstepScheduler.cancel()
+                                footstepScheduler = BeatScheduler()
+                                footstepScheduler.schedule(beatTimestamps: beatResult.beatTimestamps) {
+                                    beatBounceCounter += 1
+                                    isLeftFoot.toggle()
+                                }
                                 player.play()
                             }
                             .buttonStyle(.borderedProminent)
